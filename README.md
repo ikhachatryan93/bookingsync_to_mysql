@@ -10,7 +10,7 @@ Obtain specific tables from bookingsync APIs and fill into db.
 2.FILE MANIFEST
 configs.ini - configuration file
 src - python source codes
-token.json - authorization rules from bookingsync (http://developers.bookingsync.com/reference/testing_authorization/)
+token.json - authorization rules from bookingsync  (http://developers.bookingsync.com/reference/testing_authorization/)
 
 3. INSTALLATION
 
