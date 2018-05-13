@@ -197,6 +197,8 @@ def delete_old_rows(db, to_delete):
 
 def write_data_to_db(db: MySQL, dt: dict, table_list: list, package_size=500):
     start_time = time.time()
+    logging.info('Writing db ...')
+    print('Writing db ...')
 
     if Configs.get('clean_before_insert'):
         clean_db_records(db, table_list)
@@ -209,12 +211,13 @@ def write_data_to_db(db: MySQL, dt: dict, table_list: list, package_size=500):
     column_names = get_col_names_by_table(db, table_list=table_list)
     initial_queries = generate_initial_queries(table_list=table_list, col_names=column_names)
 
-    for _key, table in to_insert.items():
-        data_for_db = copy.deepcopy(initial_queries[_key])
+    for tbl_name in table_list:
+        table = to_insert[tbl_name]
+        data_for_db = copy.deepcopy(initial_queries[tbl_name])
         count = 0
         for record in table:
             values = ''
-            for col_name in column_names[_key]:
+            for col_name in column_names[tbl_name]:
                 col = record[col_name]
                 if not col:
                     values += 'null,'
@@ -238,16 +241,17 @@ def write_data_to_db(db: MySQL, dt: dict, table_list: list, package_size=500):
                 try:
                     db.insert(data_for_db)
                 except:
+                    logging.error(traceback.format_exc())
                     print(traceback.format_exc())
 
-                data_for_db = copy.deepcopy(initial_queries[_key])
+                data_for_db = copy.deepcopy(initial_queries[tbl_name])
                 count = 0
 
-        if data_for_db != initial_queries[_key]:
+        if data_for_db != initial_queries[tbl_name]:
             try:
                 db.insert(data_for_db)
             except:
-                print(data_for_db)
+                logging.error(traceback.format_exc())
                 print(traceback.format_exc())
 
     db.disconnect()
@@ -258,6 +262,24 @@ def write_data_to_db(db: MySQL, dt: dict, table_list: list, package_size=500):
     #     print('Successfully inserted all scraped data')
 
     elapsed_time = time.time() - start_time
-    print(time.strftime("%H:%M:%S", time.gmtime(elapsed_time)))
+    logging.info('DB write is finished in {} seconds'.format(elapsed_time))
+    logging.info('Booking records added: {}'.format(len(to_insert['bookings'])))
+    logging.info('Booking records deleted {}'.format(len(to_delete['bookings'])))
+    logging.info('Rental records added: {}'.format(len(to_insert['rentals'])))
+    logging.info('Rental records deleted {}'.format(len(to_delete['rentals'])))
+    logging.info('Client records added: {}'.format(len(to_insert['clients'])))
+    logging.info('Client records deleted {}'.format(len(to_delete['clients'])))
+    logging.info('Bookings_fee records added: {}'.format(len(to_insert['bookings_fee'])))
+    logging.info('Bookings_fee records deleted {}'.format(len(to_delete['bookings_fee'])))
+
+    print('DB write is finished in {} seconds'.format(elapsed_time))
+    print('Booking records added: {}'.format(len(to_insert['bookings'])))
+    print('Booking records deleted {}'.format(len(to_delete['bookings'])))
+    print('Rental records added: {}'.format(len(to_insert['rentals'])))
+    print('Rental records deleted {}'.format(len(to_delete['rentals'])))
+    print('Client records added: {}'.format(len(to_insert['clients'])))
+    print('Client records deleted {}'.format(len(to_delete['clients'])))
+    print('Bookings_fee records added: {}'.format(len(to_insert['bookings_fee'])))
+    print('Bookings_fee records deleted {}'.format(len(to_delete['bookings_fee'])))
 
     return 0

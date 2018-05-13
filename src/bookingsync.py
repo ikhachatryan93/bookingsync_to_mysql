@@ -34,7 +34,7 @@ def update_token():
                                                                            'scope': _token['scope'],
                                                                            'redirect_uri': _redirect_uri})
     if req.status_code == 200:
-        _token = json.loads(req.content)
+        _token = json.loads(req.content.decode('utf-8'))
         with open(_json_file, 'w') as f:
             json.dump(_token, f, ensure_ascii=False)
 
@@ -64,14 +64,14 @@ def request_data(url, params=None, rec=True):
     elif req.status_code != 200:
         raise Exception('{} error while requesting a {}'.format(req.status_code, url))
 
-    return json.loads(req.content)
+    return json.loads(req.content.decode('utf-8'))
 
 
-def advanced_request(target, ids=None, fields=None):
+def advanced_request(target, ids=None, fields=None, params={}):
     # e.g. target is account and url will be accounts_base_url
     url_base = Configs.get(target + 's_base_url')
 
-    params = {'per_page': Configs.get('x_per_page')}
+    params['per_page'] = Configs.get('x_per_page')
     if ids:
         params['id'] = ids
     if fields:
@@ -222,9 +222,11 @@ def get_bookings_fee(bookings_fee):
 def get_bookingsync_data():
     t1 = time.time()
     logging.info('Obtaining data from bookingsync...')
+    print('Obtaining data from bookingsync...')
 
     bookings_fee = advanced_request('bookings_fee')
-    bookings = advanced_request('booking')
+    bookings = advanced_request('booking', params={'from': '20171101'})
+    print(len(bookings))
     clients = advanced_request('client')
     rentals = advanced_request('rental')
 
@@ -235,19 +237,21 @@ def get_bookingsync_data():
 
     for b in data['bookings']:
         if b['client_id'] and not find(data['clients'], 'id', b['client_id']):
-            logging.warning('Invalid foreign key client_id {}'.format(b['client_id']))
+            #logging.warning('Invalid foreign key client_id {}'.format(b['client_id']))
             b['client_id'] = None
 
         if b['rental_id'] and not find(data['rentals'], 'id', b['rental_id']):
-            logging.warning('Invalid foreign key renal_id {}'.format(b['rental_id']))
+            #logging.warning('Invalid foreign key renal_id {}'.format(b['rental_id']))
             b['client_id'] = None
 
     for bf in data['bookings_fee']:
         if bf['booking_id'] and not find(data['bookings'], 'id', bf['booking_id']):
-            logging.warning('Invalid foreign key booking_id {}'.format(bf['booking_id']))
+            #logging.warning('Invalid foreign key booking_id {}'.format(bf['booking_id']))
             bf['booking_id'] = None
 
+    logging.info('Completed in {} second.'.format(time.time() - t1))
     print('Completed in {} second.'.format(time.time() - t1))
+
 
     db = MySQL(host="67.222.38.91", port=3306, user="myreser4_db", password="so8oep", db="myreser4_db")
     write_data_to_db(db, data, ['clients', 'rentals', 'bookings', 'bookings_fee'])

@@ -1,4 +1,4 @@
-import MySQLdb as mysql
+import pymysql as mysql
 import traceback
 
 
