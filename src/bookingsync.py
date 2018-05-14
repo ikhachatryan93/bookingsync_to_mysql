@@ -92,45 +92,74 @@ def advanced_request(target, ids=None, fields=None, params={}):
 def to_datetime(st):
     if st:
         try:
-            return str(datetime.strptime(st, _native_date_format))
+            return datetime.strptime(st, _native_date_format)
         except ValueError:
             logging.error('Could not convert date from {} to {}'.format('st', _native_date_format))
     return ''
 
 
+def to_int(num):
+    if num:
+        return int(num)
+    return num
+
+
+def to_float(num):
+    if num:
+        return round(float(num), 2)
+    return num
+
+
 def get_bookings(bookings):
     my_bookings = []
     for b in bookings:
-        my_booking = {'id': b['id'], 'client_id': b['links']['client'], 'rental_id': b['links']['rental'],
-                      'start_at': to_datetime(b['start_at']), 'end_at': to_datetime(b['end_at']),
-                      'created_at': to_datetime(b['created_at']), 'canceled_at': to_datetime(b['canceled_at']),
+        my_booking = {'id': int(b['id']),
+                      'client_id': to_int(b['links']['client']),
+                      'rental_id': to_int(b['links']['rental']),
+                      'start_at': to_datetime(b['start_at']),
+                      'end_at': to_datetime(b['end_at']),
+                      'created_at': to_datetime(b['created_at']),
+                      'canceled_at': to_datetime(b['canceled_at']),
                       'balance_due_at': to_datetime(b['balance_due_at']),
                       'tentative_expires_at': to_datetime(b['tentative_expires_at']),
                       'updated_at': to_datetime(b['updated_at']),
-                      'contract_updated_at': to_datetime(b['contract_updated_at']), 'status': b['status'],
-                      'reference': b['reference'], 'booked': b['booked'], 'unavailable': b['unavailable'],
-                      'initial_price': b['initial_price'], 'initial_rental_price': b['initial_rental_price'],
-                      'channel_price': b['channel_price'], 'discount': b['discount'],
-                      'final_rental_price': b['final_rental_price'], 'final_price': b['final_price'],
-                      'paid_amount': b['paid_amount'], 'currency': b['currency'], 'notes': b['notes'],
-                      'damage_deposit': b['damage_deposit'],
+                      'contract_updated_at': to_datetime(b['contract_updated_at']),
+                      'status': b['status'],
+                      'reference': b['reference'],
+                      'booked': b['booked'],
+                      'unavailable': b['unavailable'],
+                      'initial_price': to_float(b['initial_price']),
+                      'initial_rental_price': to_float(b['initial_rental_price']),
+                      'channel_price': to_float(b['channel_price']),
+                      'discount': b['discount'],
+                      'final_rental_price': to_float(b['final_rental_price']),
+                      'final_price': to_float(b['final_price']),
+                      'paid_amount': to_float(b['paid_amount']),
+                      'currency': b['currency'],
+                      'notes': b['notes'],
+                      'damage_deposit': to_float(b['damage_deposit']),
                       'charge_damage_deposit_on_arrival': b['charge_damage_deposit_on_arrival'],
-                      'adults': b['adults'], 'children': b['children'],
-                      'bookings_payments_count': b['bookings_payments_count'],
-                      'review_requests_count': b['review_requests_count'], 'locked': b['locked'],
+                      'adults': to_int(b['adults']),
+                      'children': to_int(b['children']),
+                      'bookings_payments_count': to_int(b['bookings_payments_count']),
+                      'review_requests_count': to_int(b['review_requests_count']),
+                      'locked': b['locked'],
                       'cancelation_reason': b['cancelation_reason'],
                       'expected_checkin_time': b['expected_checkin_time'],
-                      'expected_checkout_time': b['expected_checkout_time'], 'payment_url': b['payment_url'],
-                      'rental_payback_to_owner': b['rental_payback_to_owner'],
-                      'final_payback_to_owner': b['final_payback_to_owner'], 'commission': b['commission'],
+                      'expected_checkout_time': b['expected_checkout_time'],
+                      'payment_url': b['payment_url'],
+                      'rental_payback_to_owner': to_float(b['rental_payback_to_owner']),
+                      'final_payback_to_owner': to_float(b['final_payback_to_owner']),
+                      'commission': to_float(b['commission']),
                       'door_key_code': b['door_key_code'],
-                      'payment_left_to_collect': b['payment_left_to_collect'],
-                      'owned_by_app': b['owned_by_app'], 'account_id': b['links']['account'],
+                      'payment_left_to_collect': to_float(b['payment_left_to_collect']),
+                      'owned_by_app': b['owned_by_app'],
+                      'account_id': to_int(b['links']['account']),
                       'probability_win': None}
 
         if my_booking['start_at']:
-            days_interval = (datetime.strptime(my_booking['start_at'], _mysql_date_format) - datetime.now()).seconds
-            my_booking['probability_win'] = Configs.get_interval_prob(days_interval)
+            days_interval = (my_booking['start_at'] - datetime.now()).seconds
+            my_booking['probability_win'] = to_int(Configs.get_interval_prob(days_interval))
 
         my_bookings.append(my_booking)
 
@@ -148,17 +177,31 @@ def get_bookings(bookings):
 def get_rentals(rentals):
     my_rentals = []
     for r in rentals:
-        my_rentals.append({'id': r['id'], 'created_at': to_datetime(r['created_at']),
-                           'updated_at': to_datetime(r['updated_at']), 'published_at': to_datetime(r['published_at']),
-                           'name': r['name'], 'address1': r['address1'], 'address2': r['address2'],
+        my_rentals.append({'id': r['id'],
+                           'created_at': to_datetime(r['created_at']),
+                           'updated_at': to_datetime(r['updated_at']),
+                           'published_at': to_datetime(r['published_at']),
+                           'name': r['name'],
+                           'address1': r['address1'],
+                           'address2': r['address2'],
                            'currency': r['currency'],
-                           'min_price': r['min_price'], 'max_price': r['max_price'], 'downpayment': r['downpayment'],
-                           'bedrooms_count': r['bedrooms_count'], 'bathrooms_count': r['bathrooms_count'],
-                           'sleeps': r['sleeps'], 'sleeps_max': r['sleeps_max'], 'city': r['city'],
-                           'country_code': r['country_code'], 'contact_name': r['contact_name'], 'zip': r['zip'],
-                           'notes': r['notes'], 'base_rate': r['base_rate'], 'base_rate_kind': r['base_rate_kind'],
-                           'damage_deposit': r['damage_deposit'], 'rental_type': r['rental_type'],
-                           'absolute_min_price': r['absolute_min_price']})
+                           'min_price': to_float(r['min_price']),
+                           'max_price': to_float(r['max_price']),
+                           'downpayment': to_int(r['downpayment']),
+                           'bedrooms_count': to_int(r['bedrooms_count']),
+                           'bathrooms_count': to_int(r['bathrooms_count']),
+                           'sleeps': to_int(r['sleeps']),
+                           'sleeps_max': to_int(r['sleeps_max']),
+                           'city': r['city'],
+                           'country_code': r['country_code'],
+                           'contact_name': r['contact_name'],
+                           'zip': r['zip'],
+                           'notes': r['notes'],
+                           'base_rate': to_float(r['base_rate']),
+                           'base_rate_kind': r['base_rate_kind'],
+                           'damage_deposit': to_float(r['damage_deposit']),
+                           'rental_type': r['rental_type'],
+                           'absolute_min_price': to_float(r['absolute_min_price'])})
 
     return my_rentals
 
@@ -211,9 +254,9 @@ def get_bookings_fee(bookings_fee):
     my_bfees = []
     for fee in bookings_fee:
         my_bfee = {'id': fee['id'], 'updated_at': to_datetime(fee['updated_at']),
-                   'created_at': to_datetime(fee['created_at']), 'booking_id': fee['links']['booking'],
-                   'included_in_price': fee['included_in_price'], 'price': fee['price'], 'required': fee['required'],
-                   'times_booked': fee['times_booked'], 'name': None if 'en' not in fee['name'] else fee['name']['en']}
+                   'created_at': to_datetime(fee['created_at']), 'booking_id': to_int(fee['links']['booking']),
+                   'included_in_price': fee['included_in_price'], 'price': to_float(fee['price']), 'required': fee['required'],
+                   'times_booked': int(fee['times_booked']), 'name': None if 'en' not in fee['name'] else fee['name']['en']}
 
         my_bfees.append(my_bfee)
     return my_bfees
@@ -224,12 +267,23 @@ def get_bookingsync_data():
     logging.info('Obtaining data from bookingsync...')
     print('Obtaining data from bookingsync...')
 
+    t_bfe = time.time()
     bookings_fee = advanced_request('bookings_fee')
-    bookings = advanced_request('booking', params={'from': '20171101'})
-    print(len(bookings))
-    clients = advanced_request('client')
-    rentals = advanced_request('rental')
+    print('Obtained Bookings fee data in {} sec'.format(time.time() - t_bfe))
 
+    t_bkg = time.time()
+    bookings = advanced_request('booking', params={'from': '20171101'})
+    print('Obtained Bookings data in {} sec'.format(time.time() - t_bkg))
+
+    t_cl = time.time()
+    clients = advanced_request('client', params={'from': '20171101'})
+    print('Obtained Clients data in {} sec'.format(time.time() - t_cl))
+
+    t_ren = time.time()
+    rentals = advanced_request('rental', params={'from': '20171101'})
+    print('Obtained Rentals data in {} sec'.format(time.time() - t_ren))
+
+    t_prc = time.time()
     data = {'clients': get_clients(clients),
             'rentals': get_rentals(rentals),
             'bookings': get_bookings(bookings),
@@ -237,21 +291,22 @@ def get_bookingsync_data():
 
     for b in data['bookings']:
         if b['client_id'] and not find(data['clients'], 'id', b['client_id']):
-            #logging.warning('Invalid foreign key client_id {}'.format(b['client_id']))
+            print('Invalid foreign key client_id {}'.format(b['client_id']))
             b['client_id'] = None
 
         if b['rental_id'] and not find(data['rentals'], 'id', b['rental_id']):
-            #logging.warning('Invalid foreign key renal_id {}'.format(b['rental_id']))
-            b['client_id'] = None
+            print('Invalid foreign key renal_id {}'.format(b['rental_id']))
+            b['rental_id'] = None
 
     for bf in data['bookings_fee']:
         if bf['booking_id'] and not find(data['bookings'], 'id', bf['booking_id']):
-            #logging.warning('Invalid foreign key booking_id {}'.format(bf['booking_id']))
+            print('Invalid foreign key booking_id {}'.format(bf['booking_id']))
             bf['booking_id'] = None
 
     logging.info('Completed in {} second.'.format(time.time() - t1))
-    print('Completed in {} second.'.format(time.time() - t1))
+    print('Processed obtained data in {} sec'.format(time.time() - t_prc))
 
+    print('Completed in {} second.'.format(time.time() - t1))
 
     db = MySQL(host="67.222.38.91", port=3306, user="myreser4_db", password="so8oep", db="myreser4_db")
     write_data_to_db(db, data, ['clients', 'rentals', 'bookings', 'bookings_fee'])

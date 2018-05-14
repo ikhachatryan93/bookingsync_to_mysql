@@ -120,6 +120,7 @@ def clean_db_records(db, table_list):
 
 
 def get_col_names_by_table(db, table_list):
+    db.connect()
     col_names = {}
     for table_name in table_list:
         col_names[table_name] = []
@@ -128,6 +129,7 @@ def get_col_names_by_table(db, table_list):
         for i in out:
             col_names[table_name].append(i['Field'])
 
+    db.disconnect()
     return col_names
 
 
@@ -152,35 +154,43 @@ def prepare_data_for_db(db, response_dict):
 
     data_to_insert = {}
     data_to_delete = {}
+    data_to_update = {}
 
     # filter out the data which is not updated
     for key, my_table in response_dict.items():
         to_delete = []
         to_insert = []
+        to_update = []
 
         db_table = list(db.read_all_rows('SELECT * FROM {}'.format(key)))
         for my_row in my_table:
             db_row = find(db_table, 'id', my_row['id'])
             if db_row:
-                if db_row['updated_at'] < datetime.strptime(my_row['updated_at'], _mysql_date_format) or \
-                        (('probability_win' in db_row) and db_row['probability_win'] != my_row['probability_win']):
-                    to_insert.append(my_row)
-                    to_delete.append(my_row)
+                for col_name, col_value in db_row.items():
+                    if col_value == '' or col_value is None:
+                        col_value = ''
+                    if my_row[col_name] == '' or my_row[col_name] is None:
+                        my_row[col_name] = ''
+
+                    if my_row[col_name] != col_value:
+                        to_update.append(my_row)
+                        break
+
                 db_table.remove(db_row)
             else:
                 to_insert.append(my_row)
 
         # exist in db but not in source
         # old data in db should be removed
-        if len(db_table) > 0:
-            for db_row in db_table:
-                to_delete.append(db_row)
+        for db_row in db_table:
+            to_delete.append(db_row)
 
         data_to_insert[key] = to_insert
         data_to_delete[key] = to_delete
+        data_to_update[key] = to_update
 
     db.disconnect()
-    return data_to_insert, data_to_delete
+    return data_to_insert, data_to_update, data_to_delete
 
 
 def delete_old_rows(db, to_delete):
@@ -190,26 +200,61 @@ def delete_old_rows(db, to_delete):
     for table_name, table_rows in to_delete.items():
         for row in table_rows:
             db.execute('DELETE FROM {} WHERE id={}'.format(table_name, row['id']))
+    db.execute('SET SQL_SAFE_UPDATES = 1')
     db.execute('SET FOREIGN_KEY_CHECKS = 1')
     db.conn.commit()
     db.disconnect()
 
 
+def process_column_value(col):
+    if col == '' or col is None:
+        return 'null,'
+    elif type(col) == datetime:
+        return '"{}",'.format(str(col))
+    elif type(col) == int or type(col) == float:
+        return '{},'.format(col)
+    elif type(col) == bool:
+        return '{},'.format('1' if col else '0')
+    elif type(col) == str:
+        return '"{}",'.format(col)
+    else:
+        assert 0
+
+
+def update_modified_rows(db, to_update, column_names):
+    db.connect()
+    db.execute('SET SQL_SAFE_UPDATES = 0')
+    db.execute('SET FOREIGN_KEY_CHECKS = 0')
+    for table_name, table_rows in to_update.items():
+        for row in table_rows:
+            update_script = 'UPDATE {} SET '.format(table_name)
+            for col in column_names[table_name]:
+                if col != 'id':
+                    update_script += '''{} = {} '''.format(col, process_column_value(row[col]))
+            update_script = update_script.strip(', ') + ' WHERE {}.id = {}'.format(table_name, row['id'])
+            db.execute(update_script)
+    db.conn.commit()
+    db.execute('SET FOREIGN_KEY_CHECKS = 1')
+    db.disconnect()
+
+
 def write_data_to_db(db: MySQL, dt: dict, table_list: list, package_size=500):
     start_time = time.time()
+
     logging.info('Writing db ...')
     print('Writing db ...')
+
+    column_names = get_col_names_by_table(db, table_list=table_list)
+    initial_queries = generate_initial_queries(table_list=table_list, col_names=column_names)
 
     if Configs.get('clean_before_insert'):
         clean_db_records(db, table_list)
 
-    to_insert, to_delete = prepare_data_for_db(db, dt)
+    to_insert, to_update, to_delete = prepare_data_for_db(db, dt)
     delete_old_rows(db, to_delete)
+    update_modified_rows(db, to_update, column_names)
 
     db.connect()
-
-    column_names = get_col_names_by_table(db, table_list=table_list)
-    initial_queries = generate_initial_queries(table_list=table_list, col_names=column_names)
 
     for tbl_name in table_list:
         table = to_insert[tbl_name]
@@ -218,20 +263,7 @@ def write_data_to_db(db: MySQL, dt: dict, table_list: list, package_size=500):
         for record in table:
             values = ''
             for col_name in column_names[tbl_name]:
-                col = record[col_name]
-                if not col:
-                    values += 'null,'
-                elif type(col) == int:
-                    values += '{},'.format(col)
-                elif type(col) == bool:
-                    values += '{},'.format('1' if col else '0')
-                elif type(col) == str:
-                    if col.lower() == 'true' or col.lower() == 'false':
-                        values += '{},'.format(col)
-                    else:
-                        values += '"{}",'.format(col)
-                else:
-                    assert 0
+                values += process_column_value(record[col_name])
 
             write_query = '({})'.format(values.strip(','))
             data_for_db += (',{}'.format(write_query) if count != 0 else write_query)
@@ -264,22 +296,35 @@ def write_data_to_db(db: MySQL, dt: dict, table_list: list, package_size=500):
     elapsed_time = time.time() - start_time
     logging.info('DB write is finished in {} seconds'.format(elapsed_time))
     logging.info('Booking records added: {}'.format(len(to_insert['bookings'])))
+    logging.info('Booking records updated: {}'.format(len(to_update['bookings'])))
     logging.info('Booking records deleted {}'.format(len(to_delete['bookings'])))
+
     logging.info('Rental records added: {}'.format(len(to_insert['rentals'])))
+    logging.info('Rental records updated {}'.format(len(to_update['rentals'])))
     logging.info('Rental records deleted {}'.format(len(to_delete['rentals'])))
+
     logging.info('Client records added: {}'.format(len(to_insert['clients'])))
+    logging.info('Client records updated {}'.format(len(to_update['clients'])))
     logging.info('Client records deleted {}'.format(len(to_delete['clients'])))
     logging.info('Bookings_fee records added: {}'.format(len(to_insert['bookings_fee'])))
     logging.info('Bookings_fee records deleted {}'.format(len(to_delete['bookings_fee'])))
+    logging.info('Bookings_fee records updated {}'.format(len(to_update['bookings_fee'])))
 
     print('DB write is finished in {} seconds'.format(elapsed_time))
     print('Booking records added: {}'.format(len(to_insert['bookings'])))
+    print('Booking records updated: {}'.format(len(to_update['bookings'])))
     print('Booking records deleted {}'.format(len(to_delete['bookings'])))
+
     print('Rental records added: {}'.format(len(to_insert['rentals'])))
+    print('Rental records updated {}'.format(len(to_update['rentals'])))
     print('Rental records deleted {}'.format(len(to_delete['rentals'])))
+
     print('Client records added: {}'.format(len(to_insert['clients'])))
+    print('Client records updated {}'.format(len(to_update['clients'])))
     print('Client records deleted {}'.format(len(to_delete['clients'])))
+
     print('Bookings_fee records added: {}'.format(len(to_insert['bookings_fee'])))
     print('Bookings_fee records deleted {}'.format(len(to_delete['bookings_fee'])))
+    print('Bookings_fee records updated {}'.format(len(to_update['bookings_fee'])))
 
     return 0
