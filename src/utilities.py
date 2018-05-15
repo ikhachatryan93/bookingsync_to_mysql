@@ -16,25 +16,9 @@ sys.path.append(os.path.join(dir_path, "drivers"))
 _mysql_date_format = '%Y-%m-%d %H:%M:%S'
 
 
-def send_email(_from, _to, _subject, _message):
-    import smtplib
-
-    # Import the email modules we'll need
-    from email.mime.text import MIMEText
-
-    msg = MIMEText(_message)
-
-    # me == the sender's email address
-    # you == the recipient's email address
-    msg['Subject'] = _subject
-    msg['From'] = _from
-    msg['To'] = _to
-
-    # Send the message via our own SMTP server, but don't include the
-    # envelope header.
-    s = smtplib.SMTP('localhost')
-    s.sendmail(_from, [_to], msg.as_string())
-    s.quit()
+def print_std_and_log(msg):
+    logging.info(msg)
+    print(msg)
 
 
 class Configs:
@@ -73,7 +57,7 @@ class Configs:
             if match:
                 Configs.config['interval_prob'].append((match.group(1), match.group(2), match.group(3)))
             else:
-                print('Error while parsing {} interval'.format(var_name))
+                print_std_and_log('Error while parsing {} interval'.format(var_name))
                 exit(1)
 
         Configs.parsed = True
@@ -84,7 +68,7 @@ class Configs:
             if float(pr[0]) <= interval <= float(pr[1]):
                 return pr[2]
 
-        logging.warning('Could not find probability for interval: {}'.format(interval))
+        print_std_and_log('Could not find probability for interval: {}'.format(interval))
         return None
 
     @staticmethod
@@ -167,9 +151,9 @@ def prepare_data_for_db(db, response_dict):
             db_row = find(db_table, 'id', my_row['id'])
             if db_row:
                 for col_name, col_value in db_row.items():
-                    if col_value == '' or col_value is None:
+                    if col_value is None:
                         col_value = ''
-                    if my_row[col_name] == '' or my_row[col_name] is None:
+                    if my_row[col_name] is None:
                         my_row[col_name] = ''
 
                     if my_row[col_name] != col_value:
@@ -235,14 +219,14 @@ def update_modified_rows(db, to_update, column_names):
             db.execute(update_script)
     db.conn.commit()
     db.execute('SET FOREIGN_KEY_CHECKS = 1')
+    db.execute('SET SQL_SAFE_UPDATES = 1')
     db.disconnect()
 
 
 def write_data_to_db(db: MySQL, dt: dict, table_list: list, package_size=500):
     start_time = time.time()
 
-    logging.info('Writing db ...')
-    print('Writing db ...')
+    print_std_and_log('Writing db ...')
 
     column_names = get_col_names_by_table(db, table_list=table_list)
     initial_queries = generate_initial_queries(table_list=table_list, col_names=column_names)
@@ -273,8 +257,7 @@ def write_data_to_db(db: MySQL, dt: dict, table_list: list, package_size=500):
                 try:
                     db.insert(data_for_db)
                 except:
-                    logging.error(traceback.format_exc())
-                    print(traceback.format_exc())
+                    print_std_and_log(traceback.format_exc())
 
                 data_for_db = copy.deepcopy(initial_queries[tbl_name])
                 count = 0
@@ -283,48 +266,25 @@ def write_data_to_db(db: MySQL, dt: dict, table_list: list, package_size=500):
             try:
                 db.insert(data_for_db)
             except:
-                logging.error(traceback.format_exc())
-                print(traceback.format_exc())
+                print_std_and_log(traceback.format_exc())
 
     db.disconnect()
 
-    # if failed:
-    #     print('Some part of insertion has been failed')
-    # else:
-    #     print('Successfully inserted all scraped data')
-
     elapsed_time = time.time() - start_time
-    logging.info('DB write is finished in {} seconds'.format(elapsed_time))
-    logging.info('Booking records added: {}'.format(len(to_insert['bookings'])))
-    logging.info('Booking records updated: {}'.format(len(to_update['bookings'])))
-    logging.info('Booking records deleted {}'.format(len(to_delete['bookings'])))
+    print_std_and_log('DB write is finished in {} seconds'.format(elapsed_time))
+    print_std_and_log('Booking records added: {}'.format(len(to_insert['bookings'])))
+    print_std_and_log('Booking records updated: {}'.format(len(to_update['bookings'])))
+    print_std_and_log('Booking records deleted {}'.format(len(to_delete['bookings'])))
 
-    logging.info('Rental records added: {}'.format(len(to_insert['rentals'])))
-    logging.info('Rental records updated {}'.format(len(to_update['rentals'])))
-    logging.info('Rental records deleted {}'.format(len(to_delete['rentals'])))
+    print_std_and_log('Rental records added: {}'.format(len(to_insert['rentals'])))
+    print_std_and_log('Rental records updated {}'.format(len(to_update['rentals'])))
+    print_std_and_log('Rental records deleted {}'.format(len(to_delete['rentals'])))
 
-    logging.info('Client records added: {}'.format(len(to_insert['clients'])))
-    logging.info('Client records updated {}'.format(len(to_update['clients'])))
-    logging.info('Client records deleted {}'.format(len(to_delete['clients'])))
-    logging.info('Bookings_fee records added: {}'.format(len(to_insert['bookings_fee'])))
-    logging.info('Bookings_fee records deleted {}'.format(len(to_delete['bookings_fee'])))
-    logging.info('Bookings_fee records updated {}'.format(len(to_update['bookings_fee'])))
+    print_std_and_log('Client records added: {}'.format(len(to_insert['clients'])))
+    print_std_and_log('Client records updated {}'.format(len(to_update['clients'])))
+    print_std_and_log('Client records deleted {}'.format(len(to_delete['clients'])))
 
-    print('DB write is finished in {} seconds'.format(elapsed_time))
-    print('Booking records added: {}'.format(len(to_insert['bookings'])))
-    print('Booking records updated: {}'.format(len(to_update['bookings'])))
-    print('Booking records deleted {}'.format(len(to_delete['bookings'])))
-
-    print('Rental records added: {}'.format(len(to_insert['rentals'])))
-    print('Rental records updated {}'.format(len(to_update['rentals'])))
-    print('Rental records deleted {}'.format(len(to_delete['rentals'])))
-
-    print('Client records added: {}'.format(len(to_insert['clients'])))
-    print('Client records updated {}'.format(len(to_update['clients'])))
-    print('Client records deleted {}'.format(len(to_delete['clients'])))
-
-    print('Bookings_fee records added: {}'.format(len(to_insert['bookings_fee'])))
-    print('Bookings_fee records deleted {}'.format(len(to_delete['bookings_fee'])))
-    print('Bookings_fee records updated {}'.format(len(to_update['bookings_fee'])))
-
+    print_std_and_log('Bookings_fee records added: {}'.format(len(to_insert['bookings_fee'])))
+    print_std_and_log('Bookings_fee records deleted {}'.format(len(to_delete['bookings_fee'])))
+    print_std_and_log('Bookings_fee records updated {}'.format(len(to_update['bookings_fee'])))
     return 0
