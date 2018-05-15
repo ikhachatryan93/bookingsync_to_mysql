@@ -13,7 +13,7 @@ logging.getLogger("ThreadPool").setLevel(logging.CRITICAL)
 def configure_logging(handler_type):
     logger = logging.getLogger()
     if "file" in str(handler_type):
-        filename = dir_path + os.sep + "logs/{}".format(dt)
+        filename = dir_path + "/../logs/{}".format(dt)
         os.remove(filename) if os.path.exists(filename) else None
         handler = logging.FileHandler(filename=filename)
     else:

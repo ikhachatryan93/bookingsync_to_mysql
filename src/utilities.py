@@ -157,6 +157,8 @@ def prepare_data_for_db(db, response_dict):
                         my_row[col_name] = ''
 
                     if my_row[col_name] != col_value:
+                        print('from {} table db {}={} source {}={}'.format(key, col_name, col_value, col_name, my_row[col_name]))
+                        logging.warning('from {} table db {}={} source {}={}'.format(key, col_name, col_value, col_name, my_row[col_name]))
                         to_update.append(my_row)
                         break
 
