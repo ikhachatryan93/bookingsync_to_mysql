@@ -6,6 +6,7 @@ import time
 from copy import deepcopy
 from datetime import datetime
 from multiprocessing.pool import ThreadPool
+from utilities import print_std_and_log
 
 import requests
 import tqdm
@@ -154,6 +155,40 @@ def prepare_bitrix_data(new_deals):
     return to_add, to_update, to_remove
 
 
+def get_returning_host(client_id, bookings):
+    n = 0
+    for b in bookings:
+        if client_id == b['client_id']:
+            n += 1
+
+    if n > 1:
+        return '1'
+    return '0'
+
+
+def get_stage(start_at, end_at, status):
+    # Deal stage: is something like status.
+    # By default it is "booked".
+    # If the reservation is 32days ahead or less we change it to :"payed".
+    # If start_at is today, then we change it to "Arrival".
+    # If start_at<today<end_at then value is "staying", and if end_at=today then "departing"
+    stage_id = STAGE.BOOKED if status == 'Booked' else None
+    reserv_days_ahead = (start_at - datetime.now()).days
+    try:
+        if reserv_days_ahead == 0:
+            stage_id = STAGE.ARRIVED
+        elif start_at < datetime.now() <= end_at:
+            stage_id = STAGE.STAY
+        elif datetime.now() > end_at:
+            stage_id = STAGE.DEPARTED
+        elif 0 < reserv_days_ahead <= Cfg.get('btx_payed_status_interval'):
+            stage_id = STAGE.PAYED
+    except:
+        pass
+
+    return stage_id
+
+
 def process_deals_from_db():
     db = MySQL(host=Cfg.get('db_host'),
                port=int(Cfg.get('db_port')),
@@ -206,24 +241,7 @@ def process_deals_from_db():
         deal[fields['event description']] = client_name + ', ' + rental_name + ', from {}, {} night(s)'.format(
             booking['start_at'], deal[fields['number of nights']])
 
-        # Deal stage: is something like status.
-        # By default it is "booked".
-        # If the reservation is 32days ahead or less we change it to :"payed".
-        # If start_at is today, then we change it to "Arrival".
-        # If start_at<today<end_at then value is "staying", and if end_at=today then "departing"
-        deal['STAGE_ID'] = STAGE.BOOKED if booking['status'] == 'Booked' else None
-        reserv_days_ahead = (start_at - datetime.now()).days
-        try:
-            if reserv_days_ahead == 0:
-                deal['STAGE_ID'] = STAGE.ARRIVED
-            elif start_at < datetime.now() <= end_at:
-                deal['STAGE_ID'] = STAGE.STAY
-            elif datetime.now() > end_at:
-                deal['STAGE_ID'] = STAGE.DEPARTED
-            elif 0 < reserv_days_ahead <= Cfg.get('btx_payed_status_interval'):
-                deal['STAGE_ID'] = STAGE.PAYED
-        except:
-            pass
+        deal['STAGE_ID'] = get_stage(start_at, end_at, booking['status'])
 
         deal[fields['comments booking']] = booking['comments']
         deal[fields['source']] = booking['source']
@@ -269,9 +287,14 @@ def add_bitrix_deals(deals):
 
 
 def run_bitrix():
+    print_std_and_log('Uploading bitrix data...')
     deals = process_deals_from_db()
     to_add, to_update, to_delete = prepare_bitrix_data(deals)
     if Cfg.get('btx_remove_old_rows'):
         delete_bitrix_deals(to_delete)
     update_bitrix_deals(to_update)
     add_bitrix_deals(to_add)
+    print_std_and_log('Updated: {}'.format(len(to_update)))
+    print_std_and_log('Added: {}'.format(len(to_add)))
+    print_std_and_log('Deleted: {}'.format(len(to_delete)))
+    print_std_and_log('Note: The items above may not been delete if remove_old_rows flag is flase')

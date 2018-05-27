@@ -70,7 +70,7 @@ class Cfg:
         Cfg.config['btx_redirect_uri'] = config_parser.get('bitrix24', 'redirect_uri')
         Cfg.config['btx_x_per_page'] = config_parser.get('bitrix24', 'x_per_page')
         Cfg.config['btx_payed_status_interval'] = config_parser.getint('bitrix24', 'payed_status_interval')
-        Cfg.config['btx_remove_old_rows'] = config_parser.getint('bitrix24', 'remove_old_rows')
+        Cfg.config['btx_remove_old_rows'] = config_parser.getboolean('bitrix24', 'remove_old_rows')
 
         Cfg.config['interval_prob'] = []
         is_interval_cmpl = re.compile('(\d+)\s*-\s*(\d+|inf)\s*days\s*(\d+)\%?')
