@@ -5,7 +5,6 @@ import re
 import time
 from copy import deepcopy
 from datetime import datetime
-from multiprocessing.pool import ThreadPool
 from utilities import print_std_and_log
 
 import requests
@@ -300,10 +299,10 @@ def add_deal(deal):
 
 
 def add_bitrix_deals(deals):
-    pool = ThreadPool(1)
-    list(tqdm.tqdm(pool.imap(add_deal, deals), total=len(deals)))
-    pool.close()
-    pool.join()
+    tq = tqdm.tqdm(total=len(deals))
+    for d in deals:
+        tq.update(1)
+        add_deal(d)
 
 
 def run_bitrix():
