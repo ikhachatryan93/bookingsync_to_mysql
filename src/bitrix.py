@@ -233,6 +233,8 @@ def process_deals_from_db():
 
         client = find_dict_in_list(db_data['clients'], 'id', booking['client_id'])
         client_name = 'unknown' if not client else client['fullname']
+        deal[fields['returning host']] = get_returning_host(booking['client_id'], db_data['bookings'])
+
         deal['TITLE'] = client_name if client_name else 'Unknown'
         rental = find_dict_in_list(db_data['rentals'], 'id', booking['rental_id'])
         rental_name = '' if not rental or 'name' not in rental else rental['name']
