@@ -85,6 +85,8 @@ def bitrix_request(method, params={}, rec=True):
 
     elif req.status_code == 400:
         logging.error('Wrong data, {}'.format(req.content))
+    elif req.status_code == 503:
+        print_std_and_log('503 error')
     elif req.status_code != 200:
         raise Exception('{} error while requesting a {}'.format(req.status_code, url))
 
@@ -101,8 +103,24 @@ def get_fields_key_mapping():
     return _map
 
 
+def contains(deal, deals):
+    for deal2 in deals:
+        if deal['ID'] == deal2['ID']:
+            return True
+    return False
+
+
 def get_bitrix_data():
-    return bitrix_request(_deals_list, params={'select': ['UF_*', '*']})['result']
+    old_size = 0
+    start = 0
+    data = bitrix_request(_deals_list, params={'select': ['UF_*', '*']})['result']
+    while len(data) != old_size:
+        old_size = len(data)
+        start += 50
+        for v in bitrix_request(_deals_list, params={'select': ['UF_*', '*'], 'start': start})['result']:
+            if not contains(v, data):
+                data.append(v)
+    return data
 
 
 def are_differ(m1, m2):
