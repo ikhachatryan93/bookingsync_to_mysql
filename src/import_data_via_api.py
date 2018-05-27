@@ -1,14 +1,16 @@
 import logging_setup
 import logging
 import traceback
-from bookingsync import get_bookingsync_data
+from bookingsync import run_bookingsync
+import bitrix
 
-logging_setup.configure_logging('file')
+logging_setup.configure_logging('stream')
 
 
 def main():
     try:
-        get_bookingsync_data()
+        #run_bookingsync()
+        bitrix.run_bitrix()
     except:
         logging.critical(traceback.format_exc())
 

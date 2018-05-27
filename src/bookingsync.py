@@ -5,21 +5,21 @@ import time
 import requests
 import logging
 from datetime import datetime
-from utilities import Configs
+from utilities import Cfg
 from mysql_wrapper import MySQL
 from utilities import write_data_to_db
-from utilities import find
+from utilities import find_dict_in_list
+from utilities import print_std_and_log
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
 
 sys.path.append(os.path.join(dir_path, "drivers"))
 
-_json_file = dir_path + os.sep + '..' + os.sep + Configs.get('token_file')
-_client_id = Configs.get('client_id')
-_client_secret = Configs.get('client_secret')
-_redirect_uri = Configs.get('redirect_uri')
+_json_file = dir_path + os.sep + '..' + os.sep + Cfg.get('bks_token_file')
+_client_id = Cfg.get('bks_client_id')
+_client_secret = Cfg.get('bks_client_secret')
+_redirect_uri = Cfg.get('bks_redirect_uri')
 _native_date_format = '%Y-%m-%dT%H:%M:%SZ'
-_mysql_date_format = '%Y-%m-%d %H:%M:%S'
 
 with open(_json_file, 'r') as f:
     _token = json.load(f)
@@ -46,6 +46,7 @@ def request_data(url, params=None, rec=True):
     if req.status_code == 401:
         if rec:
             update_token()
+            time.sleep(10)
             return request_data(url, params, rec=False)
         else:
             raise Exception('401 error while requesting {}'.format(url))
@@ -54,9 +55,7 @@ def request_data(url, params=None, rec=True):
         if rec:
             reset_time = datetime.fromtimestamp(int(req.headers['X-RateLimit-Reset']))
             time.sleep((reset_time - datetime.now()).seconds)
-            print('waiting')
             a = request_data(url, params, rec=False)
-            print('waited')
             return a
         else:
             raise Exception('429 error, something went wrong with rate limit handler'.format(url))
@@ -69,9 +68,9 @@ def request_data(url, params=None, rec=True):
 
 def advanced_request(target, ids=None, fields=None, params={}):
     # e.g. target is account and url will be accounts_base_url
-    url_base = Configs.get(target + 's_base_url')
+    url_base = Cfg.get('bks_' + target + 's_base_url')
 
-    params['per_page'] = Configs.get('x_per_page')
+    params['per_page'] = Cfg.get('bks_x_per_page')
     if ids:
         params['id'] = ids
     if fields:
@@ -112,6 +111,19 @@ def to_float(num):
 
 def get_bookings(bookings):
     my_bookings = []
+
+    t_ren = time.time()
+    sources = advanced_request('source', params={'from': '20111101', 'fields': 'id,name'})
+    print_std_and_log('Obtained Sources data in {} sec'.format(time.time() - t_ren))
+
+    t_ren = time.time()
+    comments = advanced_request('booking_comment', params={'from': '20111101', 'fields': 'id,content'})
+    print_std_and_log('Obtained Comments data in {} sec'.format(time.time() - t_ren))
+
+    t_ren = time.time()
+    accounts = request_data(Cfg.get('bks_accounts_base_url'), params={'fields': 'id,business_name'})
+    print_std_and_log('Obtained Accounts data in {} sec'.format(time.time() - t_ren))
+
     for b in bookings:
         my_booking = {'id': int(b['id']),
                       'client_id': to_int(b['links']['client']),
@@ -155,16 +167,28 @@ def get_bookings(bookings):
                       'payment_left_to_collect': to_float(b['payment_left_to_collect']),
                       'owned_by_app': b['owned_by_app'],
                       'account_id': to_int(b['links']['account']),
-                      'probability_win': None}
+                      'probability_win': None, 'source': b['links']['source']}
+
+        if my_booking['source']:
+            source = find_dict_in_list(sources, 'id', my_booking['source'])
+            if source:
+                my_booking['source'] = source['name']
 
         if my_booking['start_at']:
             days_interval = (my_booking['start_at'] - datetime.now()).seconds
-            my_booking['probability_win'] = to_int(Configs.get_interval_prob(days_interval))
+            my_booking['probability_win'] = to_int(Cfg.get_interval_prob(days_interval))
+
+        # get comments
+        comment_str = ''
+        for comment_id in b['links']['booking_comments']:
+            comment = find_dict_in_list(comments, 'id', comment_id)
+            if comment:
+                comment_str += comment['content'] + '\n'
+        my_booking['comments'] = comment_str
 
         my_bookings.append(my_booking)
 
     # get account name
-    accounts = request_data(Configs.get('accounts_base_url'), params={'fields': 'id,business_name'})
     for b in my_bookings:
         for a in accounts['accounts']:
             if len(a) > 0:
@@ -255,33 +279,34 @@ def get_bookings_fee(bookings_fee):
     for fee in bookings_fee:
         my_bfee = {'id': fee['id'], 'updated_at': to_datetime(fee['updated_at']),
                    'created_at': to_datetime(fee['created_at']), 'booking_id': to_int(fee['links']['booking']),
-                   'included_in_price': fee['included_in_price'], 'price': to_float(fee['price']), 'required': fee['required'],
-                   'times_booked': int(fee['times_booked']), 'name': None if 'en' not in fee['name'] else fee['name']['en']}
+                   'included_in_price': fee['included_in_price'], 'price': to_float(fee['price']),
+                   'required': fee['required'],
+                   'times_booked': int(fee['times_booked']),
+                   'name': None if 'en' not in fee['name'] else fee['name']['en']}
 
         my_bfees.append(my_bfee)
     return my_bfees
 
 
-def get_bookingsync_data():
-    t1 = time.time()
-    logging.info('Obtaining data from bookingsync...')
-    print('Obtaining data from bookingsync...')
+def run_bookingsync():
+    t_total = time.time()
+    print_std_and_log('Obtaining data from bookingsync...')
 
     t_bfe = time.time()
     bookings_fee = advanced_request('bookings_fee')
-    print('Obtained Bookings fee data in {} sec'.format(time.time() - t_bfe))
+    print_std_and_log('Obtained Bookings fee data in {} sec'.format(time.time() - t_bfe))
 
     t_bkg = time.time()
-    bookings = advanced_request('booking', params={'from': '20171101'})
-    print('Obtained Bookings data in {} sec'.format(time.time() - t_bkg))
+    bookings = advanced_request('booking', params={'from': '20111101'})
+    print_std_and_log('Obtained Bookings data in {} sec'.format(time.time() - t_bkg))
 
     t_cl = time.time()
-    clients = advanced_request('client', params={'from': '20171101'})
-    print('Obtained Clients data in {} sec'.format(time.time() - t_cl))
+    clients = advanced_request('client', params={'from': '20111101'})
+    print_std_and_log('Obtained Clients data in {} sec'.format(time.time() - t_cl))
 
     t_ren = time.time()
-    rentals = advanced_request('rental', params={'from': '20171101'})
-    print('Obtained Rentals data in {} sec'.format(time.time() - t_ren))
+    rentals = advanced_request('rental', params={'from': '20111101'})
+    print_std_and_log('Obtained Rentals data in {} sec'.format(time.time() - t_ren))
 
     t_prc = time.time()
     data = {'clients': get_clients(clients),
@@ -290,23 +315,26 @@ def get_bookingsync_data():
             'bookings_fee': get_bookings_fee(bookings_fee)}
 
     for b in data['bookings']:
-        if b['client_id'] and not find(data['clients'], 'id', b['client_id']):
-            print('Invalid foreign key client_id {}'.format(b['client_id']))
+        if b['client_id'] and not find_dict_in_list(data['clients'], 'id', b['client_id']):
+            # print_std_and_log('Invalid foreign key client_id {}'.format(b['client_id']))
             b['client_id'] = None
 
-        if b['rental_id'] and not find(data['rentals'], 'id', b['rental_id']):
-            print('Invalid foreign key renal_id {}'.format(b['rental_id']))
+        if b['rental_id'] and not find_dict_in_list(data['rentals'], 'id', b['rental_id']):
+            # print_std_and_log('Invalid foreign key renal_id {}'.format(b['rental_id']))
             b['rental_id'] = None
 
     for bf in data['bookings_fee']:
-        if bf['booking_id'] and not find(data['bookings'], 'id', bf['booking_id']):
-            print('Invalid foreign key booking_id {}'.format(bf['booking_id']))
+        if bf['booking_id'] and not find_dict_in_list(data['bookings'], 'id', bf['booking_id']):
+            # print_std_and_log('Invalid foreign key booking_id {}'.format(bf['booking_id']))
             bf['booking_id'] = None
 
-    logging.info('Completed in {} second.'.format(time.time() - t1))
-    print('Processed obtained data in {} sec'.format(time.time() - t_prc))
+    print_std_and_log('Processed obtained data in {} sec'.format(time.time() - t_prc))
+    print_std_and_log('Completed in {} second.'.format(time.time() - t_total))
 
-    print('Completed in {} second.'.format(time.time() - t1))
+    db = MySQL(host=Cfg.get('db_host'),
+               port=int(Cfg.get('db_port')),
+               user=Cfg.get('db_user'),
+               password=Cfg.get('db_password'),
+               db=Cfg.get('db_name'))
 
-    db = MySQL(host="67.222.38.91", port=3306, user="myreser4_db", password="so8oep", db="myreser4_db")
-    write_data_to_db(db, data, ['clients', 'rentals', 'bookings', 'bookings_fee'])
+    write_data_to_db(db, data, Cfg.get('db_tables'))

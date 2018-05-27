@@ -6,6 +6,7 @@ import re
 import sys
 import time
 import traceback
+import json
 from datetime import datetime
 
 from mysql_wrapper import MySQL
@@ -21,7 +22,7 @@ def print_std_and_log(msg):
     print(msg)
 
 
-class Configs:
+class Cfg:
     cfg_file = dir_path + os.sep + '..' + os.sep + 'configs.ini'
     # input_file = "input.txt"
     config = {}
@@ -31,40 +32,61 @@ class Configs:
     def parse_config_file():
         config_parser = configparser.RawConfigParser()
         config_parser.optionxform = str
-        config_parser.read(Configs.cfg_file)
+        config_parser.read(Cfg.cfg_file)
 
-        Configs.config['login'] = config_parser.get('config', 'login')
-        Configs.config['password'] = config_parser.get('config', 'password')
-        Configs.config['home_url'] = config_parser.get('config', 'home_url')
+        Cfg.config['login'] = config_parser.get('config', 'login')
+        Cfg.config['password'] = config_parser.get('config', 'password')
+        Cfg.config['home_url'] = config_parser.get('config', 'home_url')
 
-        Configs.config['token_file'] = config_parser.get('bookingsync', 'token_file')
-        Configs.config['private_app_secret_code'] = config_parser.get('bookingsync', 'token_file')
-        Configs.config['client_secret'] = config_parser.get('bookingsync', 'client_secret')
-        Configs.config['client_id'] = config_parser.get('bookingsync', 'client_id')
-        Configs.config['redirect_uri'] = config_parser.get('bookingsync', 'redirect_uri')
-        Configs.config['x_per_page'] = config_parser.get('bookingsync', 'x_per_page')
-        Configs.config['bookings_base_url'] = config_parser.get('bookingsync', 'bookings_base_url')
-        Configs.config['clients_base_url'] = config_parser.get('bookingsync', 'clients_base_url')
-        Configs.config['accounts_base_url'] = config_parser.get('bookingsync', 'accounts_base_url')
-        Configs.config['rentals_base_url'] = config_parser.get('bookingsync', 'rentals_base_url')
-        Configs.config['bookings_fees_base_url'] = config_parser.get('bookingsync', 'bookings_fees_base_url')
-        Configs.config['clean_before_insert'] = config_parser.getboolean('bookingsync', 'clean_before_insert')
+        # mysql
+        Cfg.config['db_name'] = config_parser.get('mysql', 'name')
+        Cfg.config['db_host'] = config_parser.get('mysql', 'host')
+        Cfg.config['db_user'] = config_parser.get('mysql', 'user')
+        Cfg.config['db_port'] = config_parser.get('mysql', 'port')
+        Cfg.config['db_password'] = config_parser.get('mysql', 'password')
+        Cfg.config['db_tables'] = config_parser.get('mysql', 'db_tables').split()
 
-        Configs.config['interval_prob'] = []
+        # bookingsync
+        Cfg.config['bks_token_file'] = config_parser.get('bookingsync', 'token_file')
+        Cfg.config['bks_private_app_secret_code'] = config_parser.get('bookingsync', 'token_file')
+        Cfg.config['bks_client_secret'] = config_parser.get('bookingsync', 'client_secret')
+        Cfg.config['bks_client_id'] = config_parser.get('bookingsync', 'client_id')
+        Cfg.config['bks_redirect_uri'] = config_parser.get('bookingsync', 'redirect_uri')
+        Cfg.config['bks_x_per_page'] = config_parser.get('bookingsync', 'x_per_page')
+        Cfg.config['bks_bookings_base_url'] = config_parser.get('bookingsync', 'bookings_base_url')
+        Cfg.config['bks_clients_base_url'] = config_parser.get('bookingsync', 'clients_base_url')
+        Cfg.config['bks_accounts_base_url'] = config_parser.get('bookingsync', 'accounts_base_url')
+        Cfg.config['bks_rentals_base_url'] = config_parser.get('bookingsync', 'rentals_base_url')
+        Cfg.config['bks_bookings_fees_base_url'] = config_parser.get('bookingsync', 'bookings_fees_base_url')
+        Cfg.config['bks_sources_base_url'] = config_parser.get('bookingsync', 'sources_base_url')
+        Cfg.config['bks_booking_comments_base_url'] = config_parser.get('bookingsync', 'comments_base_url')
+        Cfg.config['bks_clean_before_insert'] = config_parser.getboolean('bookingsync', 'clean_before_insert')
+
+        # bitrix24
+        Cfg.config['btx_token_file'] = config_parser.get('bitrix24', 'token_file')
+        Cfg.config['btx_private_app_secret_code'] = config_parser.get('bitrix24', 'token_file')
+        Cfg.config['btx_client_secret'] = config_parser.get('bitrix24', 'client_secret')
+        Cfg.config['btx_client_id'] = config_parser.get('bitrix24', 'client_id')
+        Cfg.config['btx_redirect_uri'] = config_parser.get('bitrix24', 'redirect_uri')
+        Cfg.config['btx_x_per_page'] = config_parser.get('bitrix24', 'x_per_page')
+        Cfg.config['btx_payed_status_interval'] = config_parser.getint('bitrix24', 'payed_status_interval')
+        Cfg.config['btx_remove_old_rows'] = config_parser.getint('bitrix24', 'remove_old_rows')
+
+        Cfg.config['interval_prob'] = []
         is_interval_cmpl = re.compile('(\d+)\s*-\s*(\d+|inf)\s*days\s*(\d+)\%?')
         for var_name, prob in dict(config_parser.items('probability_win_intervals')).items():
             match = is_interval_cmpl.match(prob)
             if match:
-                Configs.config['interval_prob'].append((match.group(1), match.group(2), match.group(3)))
+                Cfg.config['interval_prob'].append((match.group(1), match.group(2), match.group(3)))
             else:
                 print_std_and_log('Error while parsing {} interval'.format(var_name))
                 exit(1)
 
-        Configs.parsed = True
+        Cfg.parsed = True
 
     @staticmethod
     def get_interval_prob(interval):
-        for pr in Configs.get('interval_prob'):
+        for pr in Cfg.get('interval_prob'):
             if float(pr[0]) <= interval <= float(pr[1]):
                 return pr[2]
 
@@ -73,23 +95,36 @@ class Configs:
 
     @staticmethod
     def get(key):
-        if not Configs.parsed:
-            Configs.parse_config_file()
-        return Configs.config[key]
+        if not Cfg.parsed:
+            Cfg.parse_config_file()
+        return Cfg.config[key]
 
     @staticmethod
     def set(section, key, value):
         parser = configparser.ConfigParser()
-        parser.read(Configs.cfg_file)
+        parser.read(Cfg.cfg_file)
         parser.set(section, key, value)
-        with open(Configs.cfg_file, 'w+') as f:
+        with open(Cfg.cfg_file, 'w+') as f:
             parser.write(f)
 
     @staticmethod
     def get_mapping():
-        if not Configs.parsed:
-            Configs.parse_config_file()
-        return Configs.config['fields_mapping']
+        if not Cfg.parsed:
+            Cfg.parse_config_file()
+        return Cfg.config['fields_mapping']
+
+
+def get_db_data(db, tables, charset='utf8'):
+    db.connect(charset=charset)
+
+    db_tables = {}
+
+    for table in tables:
+        db_tables[table] = list(db.read_all_rows('SELECT * FROM {}'.format(table)))
+
+    db.disconnect()
+
+    return db_tables
 
 
 def clean_db_records(db, table_list):
@@ -126,7 +161,7 @@ def generate_initial_queries(table_list, col_names):
     return data_for_db
 
 
-def find(lst, key, value):
+def find_dict_in_list(lst, key, value):
     for dic in lst:
         if dic[key] == value:
             return dic
@@ -148,7 +183,7 @@ def prepare_data_for_db(db, response_dict):
 
         db_table = list(db.read_all_rows('SELECT * FROM {}'.format(key)))
         for my_row in my_table:
-            db_row = find(db_table, 'id', my_row['id'])
+            db_row = find_dict_in_list(db_table, 'id', str(my_row['id']))
             if db_row:
                 for col_name, col_value in db_row.items():
                     if col_value is None:
@@ -157,8 +192,10 @@ def prepare_data_for_db(db, response_dict):
                         my_row[col_name] = ''
 
                     if my_row[col_name] != col_value:
-                        print('from {} table db {}={} source {}={}'.format(key, col_name, col_value, col_name, my_row[col_name]))
-                        logging.warning('from {} table db {}={} source {}={}'.format(key, col_name, col_value, col_name, my_row[col_name]))
+                        print('from {} table db {}={} source {}={}'.format(key, col_name, col_value, col_name,
+                                                                           my_row[col_name]))
+                        logging.warning('from {} table db {}={} source {}={}'.format(key, col_name, col_value, col_name,
+                                                                                     my_row[col_name]))
                         to_update.append(my_row)
                         break
 
@@ -226,14 +263,14 @@ def update_modified_rows(db, to_update, column_names):
 
 
 def write_data_to_db(db: MySQL, dt: dict, table_list: list, package_size=500):
-    start_time = time.time()
-
     print_std_and_log('Writing db ...')
+    start_time = time.time()
+    clean_db_records(db, table_list)
 
     column_names = get_col_names_by_table(db, table_list=table_list)
     initial_queries = generate_initial_queries(table_list=table_list, col_names=column_names)
 
-    if Configs.get('clean_before_insert'):
+    if Cfg.get('bks_clean_before_insert'):
         clean_db_records(db, table_list)
 
     to_insert, to_update, to_delete = prepare_data_for_db(db, dt)
@@ -271,22 +308,12 @@ def write_data_to_db(db: MySQL, dt: dict, table_list: list, package_size=500):
                 print_std_and_log(traceback.format_exc())
 
     db.disconnect()
-
     elapsed_time = time.time() - start_time
+
     print_std_and_log('DB write is finished in {} seconds'.format(elapsed_time))
-    print_std_and_log('Booking records added: {}'.format(len(to_insert['bookings'])))
-    print_std_and_log('Booking records updated: {}'.format(len(to_update['bookings'])))
-    print_std_and_log('Booking records deleted {}'.format(len(to_delete['bookings'])))
+    for t in table_list:
+        print_std_and_log('{} records added: {}'.format(t, len(to_insert[t])))
+        print_std_and_log('{} records updated: {}'.format(t, len(to_update[t])))
+        print_std_and_log('{} records deleted {}'.format(t, len(to_delete[t])))
 
-    print_std_and_log('Rental records added: {}'.format(len(to_insert['rentals'])))
-    print_std_and_log('Rental records updated {}'.format(len(to_update['rentals'])))
-    print_std_and_log('Rental records deleted {}'.format(len(to_delete['rentals'])))
-
-    print_std_and_log('Client records added: {}'.format(len(to_insert['clients'])))
-    print_std_and_log('Client records updated {}'.format(len(to_update['clients'])))
-    print_std_and_log('Client records deleted {}'.format(len(to_delete['clients'])))
-
-    print_std_and_log('Bookings_fee records added: {}'.format(len(to_insert['bookings_fee'])))
-    print_std_and_log('Bookings_fee records deleted {}'.format(len(to_delete['bookings_fee'])))
-    print_std_and_log('Bookings_fee records updated {}'.format(len(to_update['bookings_fee'])))
     return 0

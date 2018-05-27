@@ -13,10 +13,10 @@ class MySQL:
         self.conn = None
         self.cursor = None
 
-    def connect(self):
+    def connect(self, charset='utf8'):
         try:
             self.conn = mysql.connect(host=self.host, port=self.port, user=self.user, password=self.password,
-                                      db=self.db, charset='utf8', autocommit=False)
+                                      db=self.db, charset=charset, autocommit=False)
             # self.cursor = self.conn.cursor()
             self.cursor = self.conn.cursor(mysql.cursors.DictCursor)
         except:
