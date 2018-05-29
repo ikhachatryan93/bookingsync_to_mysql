@@ -23,11 +23,17 @@ _client_id = Cfg.get('btx_client_id')
 _client_secret = Cfg.get('btx_client_secret')
 _redirect_uri = Cfg.get('btx_redirect_uri')
 _main_url = 'https://praguestars.bitrix24.com/rest/METHOD'
-_fields_method = 'crm.deal.fields'
-_deals_list = 'crm.deal.list'
-_deals_remove = 'crm.deal.delete'
-_deals_update = 'crm.deal.update'
-_deals_add = 'crm.deal.add'
+_crm_deal_fields = 'crm.deal.fields'
+_crm_contact_fields = 'crm.contact.fields'
+_contact_list = 'crm.contact.list'
+_deal_list = 'crm.deal.list'
+_deal_remove = 'crm.deal.delete'
+_deal_update = 'crm.deal.update'
+_deal_add = 'crm.deal.add'
+_contact_remove = 'crm.contact.delete'
+_contact_update = 'crm.contact.update'
+_contact_add = 'crm.contact.add'
+_deal_add_contact = 'crm.deal.contact.add'
 
 with open(_json_file, 'r') as f:
     _token = json.load(f)
@@ -85,21 +91,27 @@ def bitrix_request(method, params={}, rec=True):
     elif req.status_code == 400:
         logging.error('Wrong data, {}'.format(req.content))
     elif req.status_code == 503:
-        print_std_and_log('503 error')
+        pass
+        # print_std_and_log('503 error')
     elif req.status_code != 200:
         raise Exception('{} error while requesting a {}'.format(req.status_code, url))
 
     return json.loads(req.content.decode('utf-8'))
 
 
-def get_fields_key_mapping():
-    fields = bitrix_request(_fields_method)
-    _map = {}
-    for key_, val_ in fields['result'].items():
-        if str(key_).startswith('UF_CRM_') and 'formLabel' in val_:
-            _map[val_['formLabel'].lower()] = key_
+deal_fields_mapping = {}
 
-    return _map
+fields = bitrix_request(_crm_deal_fields)
+for key_, val_ in fields['result'].items():
+    if str(key_).startswith('UF_CRM_') and 'formLabel' in val_:
+        deal_fields_mapping[val_['formLabel'].lower()] = key_
+
+contact_fields_mapping = {}
+
+fields = bitrix_request(_crm_contact_fields)
+for key_, val_ in fields['result'].items():
+    if str(key_).startswith('UF_CRM_') and 'formLabel' in val_:
+        contact_fields_mapping[val_['formLabel'].lower()] = key_
 
 
 def contains(deal, deals):
@@ -109,16 +121,20 @@ def contains(deal, deals):
     return False
 
 
-def get_bitrix_data():
+def get_bitrix_data(content_type, params):
     old_size = 0
-    start = 0
-    data = bitrix_request(_deals_list, params={'select': ['UF_*', '*']})['result']
+    next_ = 0
+    data = bitrix_request(content_type, params=params)['result']
     while len(data) != old_size:
         old_size = len(data)
-        start += 50
-        for v in bitrix_request(_deals_list, params={'select': ['UF_*', '*'], 'start': start})['result']:
+        params['start'] = next_
+        req = bitrix_request(content_type, params=params)
+        for v in req['result']:
             if not contains(v, data):
                 data.append(v)
+        if 'next' not in req:
+            break
+        next_ = req['next']
     return data
 
 
@@ -146,12 +162,36 @@ def are_differ(m1, m2):
     return False
 
 
-def prepare_bitrix_data(new_deals):
-    bitrix_deals = get_bitrix_data()
+def prepare_contacts(new_clients):
+    bitrix_contacts = get_bitrix_data(_contact_list, params={'select': ['UF_*', '*']})
     to_add = []
     to_remove = []
     to_update = []
-    id_key = get_fields_key_mapping()['id booking (source)']
+    client_id = contact_fields_mapping['client id']
+    for client in new_clients:
+        btx_contact = find_dict_in_list(bitrix_contacts, client_id, str(client['ID']))
+
+        if btx_contact:
+            if are_differ(client, btx_contact):
+                client['ID'] = btx_contact['ID']
+                to_update.append(client)
+
+            bitrix_contacts.remove(btx_contact)
+        else:
+            to_add.append(client)
+
+    for old_deal in bitrix_contacts:
+        to_remove.append(old_deal['ID'])
+
+    return to_add, to_update, to_remove
+
+
+def prepare_deals(new_deals):
+    bitrix_deals = get_bitrix_data(_deal_list, params={'select': ['UF_*', '*']})
+    to_add = []
+    to_remove = []
+    to_update = []
+    id_key = deal_fields_mapping.get('id booking (source)')
     for deal in new_deals:
         btx_deal = find_dict_in_list(bitrix_deals, id_key, str(deal[id_key]))
 
@@ -206,18 +246,51 @@ def get_stage(start_at, end_at, status):
     return stage_id
 
 
-def process_deals_from_db():
-    db = MySQL(host=Cfg.get('db_host'),
-               port=int(Cfg.get('db_port')),
-               user=Cfg.get('db_user'),
-               password=Cfg.get('db_password'),
-               db=Cfg.get('db_name'))
-    db_data = get_db_data(db, Cfg.get('db_tables'), charset='utf8')
-    fields = get_fields_key_mapping()
+def get_clients_from_db(db_data):
+    contacts = []
+    for client in db_data['clients']:
+        contact = {}
+        contact['ID'] = client['id']
+
+        contact['NAME'] = client['firstname']
+        contact['LAST_NAME'] = client['lastname']
+        contact['SECOND_NAME'] = client['fullname']
+        contact[contact_fields_mapping['street']] = client['address1']
+        # contact[contact_fields_mapping['ADDRESS_2']] = client['address2']
+        contact[contact_fields_mapping['city']] = client['city']
+        contact[contact_fields_mapping['country']] = client['country_code']
+        contact[contact_fields_mapping['state']] = client['state']
+        contact[contact_fields_mapping['prefered language']] = client['preferred_locale']
+        contact[contact_fields_mapping['mobile']] = client['mobile'] if client['mobile'] else client['phone']
+        contact[contact_fields_mapping['email']] = client['email']
+        contact[contact_fields_mapping['client id']] = client['id']
+        # contact['EMAIL'] = [{'VALUE': client['email'], 'VALUE_TYPE': 'WORK'}]
+        # if client['mobile']:
+        #     _type = 'MOBILE'
+        #     phone = client['mobile']
+        # else:
+        #     _type = 'WORK'
+        #     phone = client['phone']
+        # contact['PHONE'] = [{'VALUE': phone, 'VALUE_TYPE': _type}]
+
+        # preferred language
+
+        contact['COMMENTS'] = client['notes']
+        contacts.append(contact)
+    return contacts
+
+
+def get_deals_from_db(db_data):
+    global deal_fields_mapping
+    fields = deal_fields_mapping
 
     deals = []
     for booking in db_data['bookings']:
-        deal = {'OPPORTUNITY': booking['final_price']}
+        if int(booking['unavailable']):
+            print_std_and_log('Ignoring {} booking as it has unavailable status'.format(booking['id']))
+            continue
+
+        deal = dict(OPPORTUNITY=booking['final_price'])
 
         deal['CURRENCY_ID'] = booking['currency']
 
@@ -244,21 +317,26 @@ def process_deals_from_db():
         end_at = booking['end_at']
 
         try:
-            deal[fields['number of nights']] = (end_at - start_at).days
+            deal[fields['number of nights']] = (end_at.date() - start_at.date()).days
         except (ValueError, TypeError):
             deal[fields['number of nights']] = None
 
         client = find_dict_in_list(db_data['clients'], 'id', booking['client_id'])
-        client_name = 'unknown' if not client else client['fullname']
-        deal[fields['returning host']] = get_returning_host(booking['client_id'], db_data['bookings'])
+        if client:
+            deal[fields['client id']] = booking['client_id']
+            deal[fields['returning host']] = get_returning_host(booking['client_id'], db_data['bookings'])
+            client_name = client['fullname']
+        else:
+            deal[fields['returning host']] = '0'
+            client_name = 'unknown'
 
-        deal['TITLE'] = client_name if client_name else 'Unknown'
         rental = find_dict_in_list(db_data['rentals'], 'id', booking['rental_id'])
         rental_name = '' if not rental or 'name' not in rental else rental['name']
 
         # event description client_name, rental_name, start_at, number of nights
         deal[fields['event description']] = client_name + ', ' + rental_name + ', from {}, {} night(s)'.format(
-            booking['start_at'], deal[fields['number of nights']])
+            booking['start_at'].date(), deal[fields['number of nights']])
+        deal['TITLE'] = deal[fields['event description']]
 
         deal['STAGE_ID'] = get_stage(start_at, end_at, booking['status'])
 
@@ -273,47 +351,102 @@ def process_deals_from_db():
     return deals
 
 
-def delete_bitrix_deals(deal_ids):
-    for _id in deal_ids:
+def delete_bitrix_fields(remove_method, field_ids, name):
+    tq = tqdm.tqdm(total=len(field_ids))
+    tq.set_description('Removing old {}'.format(name))
+    for _id in field_ids:
+        tq.update(1)
         try:
-            bitrix_request(_deals_remove, params={'id': _id})
+            bitrix_request(remove_method, params={'id': _id})
         except:
             logging.error('Could not delete deal with id: {}'.format(_id))
 
 
-def update_bitrix_deals(deals):
-    for deal in deals:
-        for k, v in list(deal.items()):
-            if not v:
-                del deal[k]
-        assert 'ID' in deal
-        deepcopy(deal).pop('ID')
-        bitrix_request(_deals_update, params={'id': deal['ID'], 'fields': deal})
-
-
-def add_deal(deal):
-    for k, v in list(deal.items()):
-        if not v:
-            del deal[k]
-    bitrix_request(_deals_add, params={'fields': deal})
-
-
-def add_bitrix_deals(deals):
-    tq = tqdm.tqdm(total=len(deals))
-    for d in deals:
+def update_bitrix_fields(update_method, fields, name):
+    tq = tqdm.tqdm(total=len(fields))
+    tq.set_description('Updating modified {}'.format(name))
+    for field in fields:
         tq.update(1)
-        add_deal(d)
+        for k, v in list(field.items()):
+            if not v:
+                del field[k]
+        assert 'ID' in field
+        bitrix_request(update_method, params={'id': field['ID'], 'fields': field})
+
+
+client_contact_ids = {}
+
+
+def get_contact_ids(field, res):
+    global client_contact_ids
+    client_contact_ids[field[contact_fields_mapping['client id']]] = res['result']
+
+
+def add_contacts_to_deals(field, res):
+    global client_contact_ids
+    if 'result' in res:
+        client_id = field[contact_fields_mapping['client id']]
+        if client_id:
+            bitrix_request(_deal_add_contact, params={'id': res['result'], 'fields': {'CONTACT_ID': client_contact_ids[client_id]}})
+
+
+def add_bitrix_fields(add_method, fields, name, callback=None):
+    tq = tqdm.tqdm(total=len(fields))
+    tq.set_description('Adding new {}'.format(name))
+    for field in fields:
+        tq.update(1)
+        for k, v in list(field.items()):
+            if not v:
+                del field[k]
+        res = bitrix_request(add_method, params={'fields': field})
+        if callback:
+            callback(field, res)
+
+
+def upload_deals(to_add, to_update, to_delete):
+    if Cfg.get('btx_remove_old_rows'):
+        delete_bitrix_fields(_deal_remove, to_delete, 'deals')
+    update_bitrix_fields(_deal_update, to_update, 'deals')
+    add_bitrix_fields(_deal_add, to_add, 'deals', add_contacts_to_deals)
+    print_std_and_log('Updated: {}'.format(len(to_update)))
+    print_std_and_log('Added: {}'.format(len(to_add)))
+    print_std_and_log('Deleted: {}'.format(len(to_delete)))
+    print_std_and_log('Note: The items above may not been delete if remove_old_rows flag is false')
+
+
+def upload_contacts(to_add, to_update, to_delete):
+    print_std_and_log('Uploading contacts...')
+    if Cfg.get('btx_remove_old_rows'):
+        delete_bitrix_fields(_contact_remove, to_delete, 'contacts')
+
+    update_bitrix_fields(_contact_update, to_update, 'contacts')
+    add_bitrix_fields(_contact_add, to_add, 'contacts', get_contact_ids)
+    print_std_and_log('Updated: {}'.format(len(to_update)))
+    print_std_and_log('Added: {}'.format(len(to_add)))
+    print_std_and_log('Deleted: {}'.format(len(to_delete)))
+    print_std_and_log('Note: The items above may not been delete if remove_old_rows flag is false')
+
+
+# def bind_contact_to_deal(deal):
+#     contact_id = deal[fields_mapping.get('client id')]
+#     btx_contact = bitrix_request('crm.contact.get', params={'id': contact_id})
+#     if 'result' in btx_contact:
+#         bitrix_request()
 
 
 def run_bitrix():
     print_std_and_log('Uploading bitrix data...')
-    deals = process_deals_from_db()
-    to_add, to_update, to_delete = prepare_bitrix_data(deals)
-    if Cfg.get('btx_remove_old_rows'):
-        delete_bitrix_deals(to_delete)
-    update_bitrix_deals(to_update)
-    add_bitrix_deals(to_add)
-    print_std_and_log('Updated: {}'.format(len(to_update)))
-    print_std_and_log('Added: {}'.format(len(to_add)))
-    print_std_and_log('Deleted: {}'.format(len(to_delete)))
-    print_std_and_log('Note: The items above may not been delete if remove_old_rows flag is flase')
+    db = MySQL(host=Cfg.get('db_host'),
+               port=int(Cfg.get('db_port')),
+               user=Cfg.get('db_user'),
+               password=Cfg.get('db_password'),
+               db=Cfg.get('db_name'))
+    db_data = get_db_data(db, Cfg.get('db_tables'), charset='utf8')
+
+    clients = get_clients_from_db(db_data)
+    to_add, to_update, to_delete = prepare_contacts(clients)
+    upload_contacts(to_add, to_update, to_delete)
+
+    deals = get_deals_from_db(db_data)
+    to_add, to_update, to_delete = prepare_deals(deals)
+    upload_deals(to_add, to_update, to_delete)
