@@ -318,6 +318,7 @@ def get_deals_from_db(db_data):
             deal[fields['returning host']] = get_returning_host(booking['client_id'], db_data['bookings'])
             client_name = client['fullname']
         else:
+            deal[fields['client id']] = None
             deal[fields['returning host']] = '0'
             client_name = 'unknown'
 
@@ -379,6 +380,8 @@ def add_contacts_to_deals(field, res):
         client_id = field[contact_fields_mapping['client id']]
         if client_id:
             bitrix_request(_deal_add_contact, params={'id': res['result'], 'fields': {'CONTACT_ID': client_contact_ids[client_id]}})
+        else:
+            print_std_and_log('Booking {} has not client id'.find(res['result']))
 
 
 def add_bitrix_fields(add_method, fields, name, callback=None):
