@@ -114,18 +114,18 @@ def contains(deal, deals):
 
 def get_bitrix_data(content_type, params):
     old_size = 0
-    next_ = 0
-    data = bitrix_request(content_type, params=params)['result']
+    req = bitrix_request(content_type, params=params)
+    data = req['result']
     while len(data) != old_size:
+        if 'next' not in req:
+            break
         old_size = len(data)
-        params['start'] = next_
+        params['start'] = req['next']
         req = bitrix_request(content_type, params=params)
         for v in req['result']:
             if not contains(v, data):
                 data.append(v)
-        if 'next' not in req:
-            break
-        next_ = req['next']
+
     return data
 
 
@@ -369,17 +369,20 @@ def update_bitrix_fields(update_method, fields, name):
 client_contact_ids = {}
 
 
-def get_contact_ids(field, res):
-    global client_contact_ids
-    client_contact_ids[field[contact_fields_mapping['client id']]] = res['result']
+def get_contact_ids():
+    client_id_key = contact_fields_mapping['client id']
+    contacts = get_bitrix_data(_contact_list, params={'select': ['ID', client_id_key]})
+    for c in contacts:
+        client_contact_ids[c[client_id_key]] = c['ID']
 
 
 def add_contacts_to_deals(field, res):
     global client_contact_ids
+    client_id_key = deal_fields_mapping['client id']
     if 'result' in res:
-        client_id = field[contact_fields_mapping['client id']]
+        client_id = field[client_id_key]
         if client_id:
-            bitrix_request(_deal_add_contact, params={'id': res['result'], 'fields': {'CONTACT_ID': client_contact_ids[client_id]}})
+            bitrix_request(_deal_add_contact, params={'id': res['result'], 'fields': {'CONTACT_ID': [field[client_id_key]]}})
         else:
             print_std_and_log('Booking {} has not client id'.find(res['result']))
 
@@ -390,7 +393,7 @@ def add_bitrix_fields(add_method, fields, name, callback=None):
     for field in fields:
         tq.update(1)
         for k, v in list(field.items()):
-            if not v:
+            if not v and v != 0:
                 del field[k]
         res = bitrix_request(add_method, params={'fields': field})
         if callback:
@@ -398,6 +401,7 @@ def add_bitrix_fields(add_method, fields, name, callback=None):
 
 
 def upload_deals(to_add, to_update, to_delete):
+    get_contact_ids()
     if Cfg.get('btx_remove_old_rows'):
         delete_bitrix_fields(_deal_remove, to_delete, 'deals')
     update_bitrix_fields(_deal_update, to_update, 'deals')
