@@ -3,7 +3,6 @@ import logging
 import os
 import re
 import time
-from copy import deepcopy
 from datetime import datetime
 from utilities import print_std_and_log
 
@@ -78,23 +77,15 @@ def bitrix_request(method, params={}, rec=True):
             return bitrix_request(method, params, rec=False)
         else:
             raise Exception('401 error while requesting {}'.format(url))
-    elif req.status_code == 429:
-        # wait until request counts will be updated
-        if rec:
-            reset_time = datetime.fromtimestamp(int(req.headers['X-RateLimit-Reset']))
-            time.sleep((reset_time - datetime.now()).seconds)
-            a = bitrix_request(url, params, rec=False)
-            return a
-        else:
-            raise Exception('429 error, something went wrong with rate limit handler'.format(url))
-
     elif req.status_code == 400:
         logging.error('Wrong data, {}'.format(req.content))
-    elif req.status_code == 503:
-        pass
-        # print_std_and_log('503 error')
     elif req.status_code != 200:
-        raise Exception('{} error while requesting a {}'.format(req.status_code, url))
+        print_std_and_log('{} error while requesting a {}'.format(req.status_code, url))
+        time.sleep(10)
+        if rec:
+            return bitrix_request(method, params, rec=False)
+        else:
+            print_std_and_log('Second try was filed, possible data loss')
 
     return json.loads(req.content.decode('utf-8'))
 
