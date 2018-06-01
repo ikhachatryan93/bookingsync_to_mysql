@@ -80,12 +80,12 @@ def bitrix_request(method, params={}, rec=True):
     elif req.status_code == 400:
         logging.error('Wrong data, {}'.format(req.content))
     elif req.status_code != 200:
-        print_std_and_log('{} error while requesting a {}'.format(req.status_code, url))
         time.sleep(10)
         if rec:
             return bitrix_request(method, params, rec=False)
         else:
-            print_std_and_log('Second try was filed, possible data loss')
+            print_std_and_log('{} error while requesting a {}'.format(req.status_code, url))
+            print_std_and_log('Second try was failed, possible data loss')
 
     return json.loads(req.content.decode('utf-8'))
 
@@ -114,17 +114,21 @@ def contains(deal, deals):
 
 def get_bitrix_data(content_type, params):
     old_size = 0
+
     req = bitrix_request(content_type, params=params)
     data = req['result']
+    if 'next' not in req:
+        return data
+
     while len(data) != old_size:
-        if 'next' not in req:
-            break
         old_size = len(data)
         params['start'] = req['next']
         req = bitrix_request(content_type, params=params)
         for v in req['result']:
             if not contains(v, data):
                 data.append(v)
+        if 'next' not in req:
+            break
 
     return data
 
@@ -137,17 +141,20 @@ def are_differ(m1, m2):
 
     for _key, val1 in m1.items():
         if _key == 'ID': continue
-        # e.g empty list and none is equal
         val2 = m2[_key]
+        
+        val1 = val1 if val1 != '0' else None
+        val2 = val2 if val2 != '0' else None
         if not val1 and not val2:
             continue
 
+        old_val2 = val2
         if type(val1) == datetime:
-            pass
             tm = re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}([\+-]\d{2}:\d{2})', val2)
             val2 = datetime.strptime(val2, '%Y-%m-%dT%H:%M:%S{}'.format(tm.group(1)))
 
         if str(val1) != str(val2):
+            print('from {} differ {} and {}, {}'.format(_key, val1, val2, old_val2))
             return True
 
     return False
@@ -225,8 +232,6 @@ def get_stage(start_at, end_at, status):
     try:
         if reserv_days_ahead == 0:
             stage_id = STAGE.ARRIVED
-        elif start_at < datetime.now() <= end_at:
-            stage_id = STAGE.STAY
         elif datetime.now() > end_at:
             stage_id = STAGE.DEPARTED
         elif 0 < reserv_days_ahead <= Cfg.get('btx_payed_status_interval'):
@@ -276,9 +281,10 @@ def get_deals_from_db(db_data):
     fields = deal_fields_mapping
 
     deals = []
+    ignored = 0
     for booking in db_data['bookings']:
         if int(booking['unavailable']):
-            print_std_and_log('Ignoring {} booking as it has unavailable status'.format(booking['id']))
+            ignored += 1
             continue
 
         deal = dict(OPPORTUNITY=booking['final_price'])
@@ -340,6 +346,7 @@ def get_deals_from_db(db_data):
 
         deals.append(deal)
 
+    print_std_and_log('Ignored {} bookings as they have unavailable status'.format(ignored))
     return deals
 
 
@@ -359,9 +366,9 @@ def update_bitrix_fields(update_method, fields, name):
     tq.set_description('Updating modified {}'.format(name))
     for field in fields:
         tq.update(1)
-        for k, v in list(field.items()):
-            if not v:
-                del field[k]
+        #for k, v in list(field.items()):
+            # if not v:
+            #     del field[k]
         assert 'ID' in field
         bitrix_request(update_method, params={'id': field['ID'], 'fields': field})
 
@@ -382,9 +389,9 @@ def add_contacts_to_deals(field, res):
     if 'result' in res:
         client_id = field[client_id_key]
         if client_id:
-            bitrix_request(_deal_add_contact, params={'id': res['result'], 'fields': {'CONTACT_ID': [field[client_id_key]]}})
+            bitrix_request(_deal_add_contact, params={'id': res['result'], 'fields': {'CONTACT_ID': [int(field[client_id_key])], 'IS_PRIMARY': 'Y'}})
         else:
-            print_std_and_log('Booking {} has not client id'.find(res['result']))
+            print_std_and_log('Booking {} has not client id'.find(str(res['result'])))
 
 
 def add_bitrix_fields(add_method, fields, name, callback=None):
@@ -392,9 +399,6 @@ def add_bitrix_fields(add_method, fields, name, callback=None):
     tq.set_description('Adding new {}'.format(name))
     for field in fields:
         tq.update(1)
-        for k, v in list(field.items()):
-            if not v and v != 0:
-                del field[k]
         res = bitrix_request(add_method, params={'fields': field})
         if callback:
             callback(field, res)
@@ -418,7 +422,9 @@ def upload_contacts(to_add, to_update, to_delete):
         delete_bitrix_fields(_contact_remove, to_delete, 'contacts')
 
     update_bitrix_fields(_contact_update, to_update, 'contacts')
-    add_bitrix_fields(_contact_add, to_add, 'contacts', get_contact_ids)
+    update_bitrix_fields(_contact_update, to_update, 'contacts')
+    update_bitrix_fields(_contact_update, to_update, 'contacts')
+    add_bitrix_fields(_contact_add, to_add, 'contacts')
     print_std_and_log('Updated: {}'.format(len(to_update)))
     print_std_and_log('Added: {}'.format(len(to_add)))
     print_std_and_log('Deleted: {}'.format(len(to_delete)))

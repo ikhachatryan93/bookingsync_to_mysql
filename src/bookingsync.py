@@ -175,7 +175,7 @@ def get_bookings(bookings):
                 my_booking['source'] = source['name']
 
         if my_booking['start_at']:
-            days_interval = (my_booking['start_at'] - datetime.now()).seconds
+            days_interval = (my_booking['start_at'] - datetime.now()).days
             my_booking['probability_win'] = to_int(Cfg.get_interval_prob(days_interval))
 
         # get comments

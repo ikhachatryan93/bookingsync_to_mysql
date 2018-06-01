@@ -86,8 +86,10 @@ class Cfg:
 
     @staticmethod
     def get_interval_prob(interval):
+        if int(interval) < 0:
+            return '100'
         for pr in Cfg.get('interval_prob'):
-            if float(pr[0]) <= interval <= float(pr[1]):
+            if float(pr[0]) <= float(interval) <= float(pr[1]):
                 return pr[2]
 
         print_std_and_log('Could not find probability for interval: {}'.format(interval))
@@ -183,7 +185,7 @@ def prepare_data_for_db(db, response_dict):
 
         db_table = list(db.read_all_rows('SELECT * FROM {}'.format(key)))
         for my_row in my_table:
-            db_row = find_dict_in_list(db_table, 'id', str(my_row['id']))
+            db_row = find_dict_in_list(db_table, 'id', my_row['id'])
             if db_row:
                 for col_name, col_value in db_row.items():
                     if col_value is None:
@@ -265,7 +267,6 @@ def update_modified_rows(db, to_update, column_names):
 def write_data_to_db(db: MySQL, dt: dict, table_list: list, package_size=500):
     print_std_and_log('Writing db ...')
     start_time = time.time()
-    clean_db_records(db, table_list)
 
     column_names = get_col_names_by_table(db, table_list=table_list)
     initial_queries = generate_initial_queries(table_list=table_list, col_names=column_names)

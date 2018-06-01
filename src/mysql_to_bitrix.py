@@ -4,7 +4,7 @@ import traceback
 from bookingsync import run_bookingsync
 import bitrix
 
-logging_setup.configure_logging('stream')
+logging_setup.configure_logging('file')
 
 
 def main():
