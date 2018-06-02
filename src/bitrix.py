@@ -22,17 +22,26 @@ _client_id = Cfg.get('btx_client_id')
 _client_secret = Cfg.get('btx_client_secret')
 _redirect_uri = Cfg.get('btx_redirect_uri')
 _main_url = 'https://praguestars.bitrix24.com/rest/METHOD'
-_crm_deal_fields = 'crm.deal.fields'
-_crm_contact_fields = 'crm.contact.fields'
+
+_contact_fields = 'crm.contact.fields'
 _contact_list = 'crm.contact.list'
+_contact_remove = 'crm.contact.delete'
+_contact_update = 'crm.contact.update'
+_contact_add = 'crm.contact.add'
+
+_deal_add_contact = 'crm.deal.contact.add'
+_deal_add_product = 'crm.deal.productrows.set'
+_deal_fields = 'crm.deal.fields'
 _deal_list = 'crm.deal.list'
 _deal_remove = 'crm.deal.delete'
 _deal_update = 'crm.deal.update'
 _deal_add = 'crm.deal.add'
-_contact_remove = 'crm.contact.delete'
-_contact_update = 'crm.contact.update'
-_contact_add = 'crm.contact.add'
-_deal_add_contact = 'crm.deal.contact.add'
+
+_product_fields = 'crm.product.fields'
+_product_list = 'crm.product.list'
+_product_remove = 'crm.product.delete'
+_product_update = 'crm.product.update'
+_product_add = 'crm.product.add'
 
 with open(_json_file, 'r') as f:
     _token = json.load(f)
@@ -92,17 +101,25 @@ def bitrix_request(method, params={}, rec=True):
 
 deal_fields_mapping = {}
 
-fields = bitrix_request(_crm_deal_fields)
+fields = bitrix_request(_deal_fields)
 for key_, val_ in fields['result'].items():
     if str(key_).startswith('UF_CRM_') and 'formLabel' in val_:
         deal_fields_mapping[val_['formLabel'].lower()] = key_
 
 contact_fields_mapping = {}
 
-fields = bitrix_request(_crm_contact_fields)
+fields = bitrix_request(_contact_fields)
 for key_, val_ in fields['result'].items():
     if str(key_).startswith('UF_CRM_') and 'formLabel' in val_:
         contact_fields_mapping[val_['formLabel'].lower()] = key_
+
+client_id_key = contact_fields_mapping['client id']
+
+product_fields_mapping = {}
+fields = bitrix_request(_product_fields)
+for key_, val_ in fields['result'].items():
+    if str(key_).startswith('UF_CRM_') and 'formLabel' in val_:
+        product_fields_mapping[val_['formLabel'].lower()] = key_
 
 
 def contains(deal, deals):
@@ -142,7 +159,7 @@ def are_differ(m1, m2):
     for _key, val1 in m1.items():
         if _key == 'ID': continue
         val2 = m2[_key]
-        
+
         val1 = val1 if val1 != '0' else None
         val2 = val2 if val2 != '0' else None
         if not val1 and not val2:
@@ -165,9 +182,8 @@ def prepare_contacts(new_clients):
     to_add = []
     to_remove = []
     to_update = []
-    client_id = contact_fields_mapping['client id']
     for client in new_clients:
-        btx_contact = find_dict_in_list(bitrix_contacts, client_id, str(client['ID']))
+        btx_contact = find_dict_in_list(bitrix_contacts, client_id_key, str(client['ID']))
 
         if btx_contact:
             if are_differ(client, btx_contact):
@@ -182,6 +198,14 @@ def prepare_contacts(new_clients):
         to_remove.append(old_deal['ID'])
 
     return to_add, to_update, to_remove
+
+
+def prepare_products(new_products):
+    bitrix_products = get_bitrix_data(_product_list, params={'select': ['UF_*', '*']})
+    to_add = []
+    to_remove = []
+    to_update = []
+    id_key = product_fields_mapping.get('')
 
 
 def prepare_deals(new_deals):
@@ -260,20 +284,17 @@ def get_clients_from_db(db_data):
         contact[contact_fields_mapping['mobile']] = client['mobile'] if client['mobile'] else client['phone']
         contact[contact_fields_mapping['email']] = client['email']
         contact[contact_fields_mapping['client id']] = client['id']
-        # contact['EMAIL'] = [{'VALUE': client['email'], 'VALUE_TYPE': 'WORK'}]
-        # if client['mobile']:
-        #     _type = 'MOBILE'
-        #     phone = client['mobile']
-        # else:
-        #     _type = 'WORK'
-        #     phone = client['phone']
-        # contact['PHONE'] = [{'VALUE': phone, 'VALUE_TYPE': _type}]
-
-        # preferred language
-
         contact['COMMENTS'] = client['notes']
         contacts.append(contact)
     return contacts
+
+
+def get_products_from_db(db_data):
+    products = []
+    for rental in db_data['rentals']:
+        products.append(
+            {'ID': rental['id'], 'NAME': rental['name'], 'STREET': rental['address1'], 'CITY': rental['city'],
+             'CONTACT NAME': '{}, {} {}'.format(rental['contact_name'], rental['address1'], rental['city'])})
 
 
 def get_deals_from_db(db_data):
@@ -366,9 +387,9 @@ def update_bitrix_fields(update_method, fields, name):
     tq.set_description('Updating modified {}'.format(name))
     for field in fields:
         tq.update(1)
-        #for k, v in list(field.items()):
-            # if not v:
-            #     del field[k]
+        # for k, v in list(field.items()):
+        # if not v:
+        #     del field[k]
         assert 'ID' in field
         bitrix_request(update_method, params={'id': field['ID'], 'fields': field})
 
@@ -377,19 +398,20 @@ client_contact_ids = {}
 
 
 def get_contact_ids():
-    client_id_key = contact_fields_mapping['client id']
-    contacts = get_bitrix_data(_contact_list, params={'select': ['ID', client_id_key]})
+    contacts = get_bitrix_data(_contact_list, params={'select': ['ID', 'UF_*']})
     for c in contacts:
         client_contact_ids[c[client_id_key]] = c['ID']
 
 
 def add_contacts_to_deals(field, res):
     global client_contact_ids
-    client_id_key = deal_fields_mapping['client id']
+    client_id_k = deal_fields_mapping['client id']
     if 'result' in res:
-        client_id = field[client_id_key]
+        client_id = field[client_id_k]
         if client_id:
-            bitrix_request(_deal_add_contact, params={'id': res['result'], 'fields': {'CONTACT_ID': [int(field[client_id_key])], 'IS_PRIMARY': 'Y'}})
+            bitrix_request(_deal_add_contact, params={'id': res['result'],
+                                                      'fields': {'CONTACT_ID': client_contact_ids[str(field[client_id_k])],
+                                                                 'IS_PRIMARY': 'Y'}})
         else:
             print_std_and_log('Booking {} has not client id'.find(str(res['result'])))
 
