@@ -4,6 +4,9 @@ import os
 import re
 import time
 from datetime import datetime
+
+from numpy.ma.bench import m1, m2
+
 from utilities import print_std_and_log
 
 import requests
@@ -20,7 +23,7 @@ dir_path = os.path.dirname(os.path.realpath(__file__))
 _json_file = dir_path + os.sep + '..' + os.sep + Cfg.get('btx_token_file')
 _client_id = Cfg.get('btx_client_id')
 _client_secret = Cfg.get('btx_client_secret')
-_redirect_uri = Cfg.get('btx_redirect_uri')
+_redirect_uri = 'blabla'
 _main_url = 'https://praguestars.bitrix24.com/rest/METHOD'
 
 _contact_fields = 'crm.contact.fields'
@@ -99,6 +102,7 @@ def bitrix_request(method, params={}, rec=True):
     return json.loads(req.content.decode('utf-8'))
 
 
+### deal fields and mappings
 deal_fields_mapping = {}
 
 fields = bitrix_request(_deal_fields)
@@ -106,6 +110,10 @@ for key_, val_ in fields['result'].items():
     if str(key_).startswith('UF_CRM_') and 'formLabel' in val_:
         deal_fields_mapping[val_['formLabel'].lower()] = key_
 
+deal_client_id_key = deal_fields_mapping['client id']
+deal_rental_id_key = deal_fields_mapping['rental id']
+
+### contact fields and mappings
 contact_fields_mapping = {}
 
 fields = bitrix_request(_contact_fields)
@@ -113,13 +121,16 @@ for key_, val_ in fields['result'].items():
     if str(key_).startswith('UF_CRM_') and 'formLabel' in val_:
         contact_fields_mapping[val_['formLabel'].lower()] = key_
 
-client_id_key = contact_fields_mapping['client id']
+contact_client_id_key = contact_fields_mapping['client id']
 
+### product fields and mappings
 product_fields_mapping = {}
 fields = bitrix_request(_product_fields)
 for key_, val_ in fields['result'].items():
-    if str(key_).startswith('UF_CRM_') and 'formLabel' in val_:
-        product_fields_mapping[val_['formLabel'].lower()] = key_
+    if str(key_).startswith('PROPERTY_') and 'title' in val_:
+        product_fields_mapping[val_['title'].lower()] = key_
+
+product_rental_id_key = product_fields_mapping['rental_id']
 
 
 def contains(deal, deals):
@@ -183,7 +194,7 @@ def prepare_contacts(new_clients):
     to_remove = []
     to_update = []
     for client in new_clients:
-        btx_contact = find_dict_in_list(bitrix_contacts, client_id_key, str(client['ID']))
+        btx_contact = find_dict_in_list(bitrix_contacts, contact_client_id_key, client['ID'])
 
         if btx_contact:
             if are_differ(client, btx_contact):
@@ -200,12 +211,52 @@ def prepare_contacts(new_clients):
     return to_add, to_update, to_remove
 
 
+def are_differ_products(product, btx_prod):
+    for _key, val1 in product.items():
+        if _key == 'ID': continue
+
+        val2 = btx_prod[_key]
+
+        if not val1 and not val2:
+            continue
+
+        if type(val2) == dict:
+            if str(val1) != str(val2['value']):
+                return True
+        elif str(val1) != str(val2):
+            print('from {} differ {} and {}'.format(_key, val1, val2))
+            return True
+
+    return False
+
+
+def find_product_in_list(lst, key, value):
+    for dic in lst:
+        if str(dic[key]['value']) == str(value):
+            return dic
+    return None
+
+
 def prepare_products(new_products):
-    bitrix_products = get_bitrix_data(_product_list, params={'select': ['UF_*', '*']})
+    bitrix_products = get_bitrix_data(_product_list, params={'select': ['*', 'PROPERTY_*']})
     to_add = []
     to_remove = []
     to_update = []
-    id_key = product_fields_mapping.get('')
+    id_key = product_rental_id_key
+    for product in new_products:
+        btx_prod = find_product_in_list(bitrix_products, id_key, product[id_key])
+        if btx_prod:
+            if are_differ_products(product, btx_prod):
+                product['ID'] = btx_prod['ID']
+                to_update.append(product)
+            bitrix_products.remove(btx_prod)
+        else:
+            to_add.append(product)
+
+    for old_product in bitrix_products:
+        to_remove.append(old_product['ID'])
+
+    return to_add, to_update, to_remove
 
 
 def prepare_deals(new_deals):
@@ -215,7 +266,7 @@ def prepare_deals(new_deals):
     to_update = []
     id_key = deal_fields_mapping.get('id booking (source)')
     for deal in new_deals:
-        btx_deal = find_dict_in_list(bitrix_deals, id_key, str(deal[id_key]))
+        btx_deal = find_dict_in_list(bitrix_deals, id_key, deal[id_key])
 
         if btx_deal:
             # a workaround
@@ -256,6 +307,8 @@ def get_stage(start_at, end_at, status):
     try:
         if reserv_days_ahead == 0:
             stage_id = STAGE.ARRIVED
+        elif start_at <= datetime.now() <= end_at:
+            stage_id = STAGE.STAY
         elif datetime.now() > end_at:
             stage_id = STAGE.DEPARTED
         elif 0 < reserv_days_ahead <= Cfg.get('btx_payed_status_interval'):
@@ -283,6 +336,9 @@ def get_clients_from_db(db_data):
         contact[contact_fields_mapping['prefered language']] = client['preferred_locale']
         contact[contact_fields_mapping['mobile']] = client['mobile'] if client['mobile'] else client['phone']
         contact[contact_fields_mapping['email']] = client['email']
+        # mobile = client['mobile'] if client['mobile'] else client['phone']
+        # contact['PHONE'] = [{'VALUE': '{}'.format(mobile), 'VALUE_TYPE': "WORK"}]
+        # contact['EMAIL'] = [{'VALUE': '{}'.format(client['email']), 'VALUE_TYPE': "WORK"}]
         contact[contact_fields_mapping['client id']] = client['id']
         contact['COMMENTS'] = client['notes']
         contacts.append(contact)
@@ -291,15 +347,26 @@ def get_clients_from_db(db_data):
 
 def get_products_from_db(db_data):
     products = []
+    pm = product_fields_mapping
     for rental in db_data['rentals']:
         products.append(
-            {'ID': rental['id'], 'NAME': rental['name'], 'STREET': rental['address1'], 'CITY': rental['city'],
-             'CONTACT NAME': '{}, {} {}'.format(rental['contact_name'], rental['address1'], rental['city'])})
+            {
+                'NAME': rental['name'],
+                'SECTION_ID': Cfg.get('btx_product_section_id'),
+                pm['rental_id']: rental['id'],
+                pm['street']: rental['address1'],
+                pm['city']: rental['city'],
+                'DESCRIPTION': '{}, {} {}'.format(rental['contact_name'],
+                                                  rental['address1'],
+                                                  rental['city']
+                                                  )
+            })
+    return products
 
 
 def get_deals_from_db(db_data):
     global deal_fields_mapping
-    fields = deal_fields_mapping
+    dm = deal_fields_mapping
 
     deals = []
     ignored = 0
@@ -312,58 +379,56 @@ def get_deals_from_db(db_data):
 
         deal['CURRENCY_ID'] = booking['currency']
 
-        deal[fields['available to everyone']] = '1'
-
-        # deal[fields['EVENT DATE']] = str(booking['start_at'])
-        # deal['BEGINDATE'] = booking['start_at']
-        # deal['CLOSEDATE'] = booking['end_at']
-        deal[fields['assumed close date']] = booking['end_at']
-        deal[fields['start date']] = booking['start_at']
+        deal[dm['available to everyone']] = '1'
+        deal[dm['assumed close date']] = booking['end_at']
+        deal[dm['start date']] = booking['start_at']
 
         # deal['RESPONSIBLE'] = 'unassigned'
-        deal[fields['adults arrived']] = booking['adults']
-        deal[fields['children arrived']] = booking['children']
-        deal[fields['comments booking']] = booking['notes']
-        deal[fields['id booking (source)']] = booking['id']
+        deal[dm['adults arrived']] = booking['adults']
+        deal[dm['children arrived']] = booking['children']
+        deal[dm['comments booking']] = booking['notes']
+        deal[dm['id booking (source)']] = booking['id']
 
         ci = booking['expected_checkin_time']
         co = booking['expected_checkout_time']
-        deal[fields['check in time']] = ci if ci else None
-        deal[fields['check out time']] = co if co else None
+        deal[dm['check in time']] = ci if ci else None
+        deal[dm['check out time']] = co if co else None
 
         start_at = booking['start_at']
         end_at = booking['end_at']
 
         try:
-            deal[fields['number of nights']] = (end_at.date() - start_at.date()).days
+            deal[dm['number of nights']] = (end_at.date() - start_at.date()).days
         except (ValueError, TypeError):
-            deal[fields['number of nights']] = None
+            deal[dm['number of nights']] = None
 
         client = find_dict_in_list(db_data['clients'], 'id', booking['client_id'])
         if client:
-            deal[fields['client id']] = booking['client_id']
-            deal[fields['returning host']] = get_returning_host(booking['client_id'], db_data['bookings'])
+            deal[dm['client id']] = booking['client_id']
+            deal[dm['returning host']] = get_returning_host(booking['client_id'], db_data['bookings'])
             client_name = client['fullname']
         else:
-            deal[fields['client id']] = None
-            deal[fields['returning host']] = '0'
+            deal[dm['client id']] = None
+            deal[dm['returning host']] = '0'
             client_name = 'unknown'
 
         rental = find_dict_in_list(db_data['rentals'], 'id', booking['rental_id'])
+        if rental:
+            deal[dm['rental id']] = booking['rental_id']
         rental_name = '' if not rental or 'name' not in rental else rental['name']
 
         # event description client_name, rental_name, start_at, number of nights
-        deal[fields['event description']] = client_name + ', ' + rental_name + ', from {}, {} night(s)'.format(
-            booking['start_at'].date(), deal[fields['number of nights']])
-        deal['TITLE'] = deal[fields['event description']]
+        deal[dm['event description']] = client_name + ', ' + rental_name + ', from {}, {} night(s)'.format(
+            booking['start_at'].date(), deal[dm['number of nights']])
+        deal['TITLE'] = deal[dm['event description']]
 
         deal['STAGE_ID'] = get_stage(start_at, end_at, booking['status'])
 
-        deal[fields['comments booking']] = booking['comments']
-        deal[fields['source']] = booking['source']
+        deal[dm['comments booking']] = booking['comments']
+        deal[dm['source']] = booking['source']
         deal['PROBABILITY'] = booking['probability_win']
-        deal[fields['quantity']] = '1'
-        deal[fields['bookingsync link']] = 'https://www.bookingsync.com/en/bookings/{}'.format(booking['id'])
+        deal[dm['quantity']] = '1'
+        deal[dm['bookingsync link']] = 'https://www.bookingsync.com/en/bookings/{}'.format(booking['id'])
 
         deals.append(deal)
 
@@ -400,20 +465,60 @@ client_contact_ids = {}
 def get_contact_ids():
     contacts = get_bitrix_data(_contact_list, params={'select': ['ID', 'UF_*']})
     for c in contacts:
-        client_contact_ids[c[client_id_key]] = c['ID']
+        client_contact_ids[int(c[contact_client_id_key])] = c['ID']
 
 
-def add_contacts_to_deals(field, res):
+rental_product_ids = {}
+
+
+def get_product_ids():
+    product = get_bitrix_data(_product_list, params={'select': ['ID', 'PROPERTY_*']})
+    for c in product:
+        rental_product_ids[int(c[product_rental_id_key]['value'])] = c['ID']
+
+
+def add_contacts_to_deals(deal, res):
+    global rental_product_ids
     global client_contact_ids
-    client_id_k = deal_fields_mapping['client id']
+
     if 'result' in res:
-        client_id = field[client_id_k]
+        deal_id = res['result']
+
+        # bind contact to deals
+        try:
+            client_id = int(deal[deal_client_id_key])
+        except TypeError:
+            client_id = None
+
         if client_id:
-            bitrix_request(_deal_add_contact, params={'id': res['result'],
-                                                      'fields': {'CONTACT_ID': client_contact_ids[str(field[client_id_k])],
-                                                                 'IS_PRIMARY': 'Y'}})
+            bitrix_request(_deal_add_contact,
+                           params={'id': deal_id,
+                                   'fields': {
+                                       'CONTACT_ID': client_contact_ids[client_id],
+                                       'IS_PRIMARY': 'Y'
+                                   }
+                                   })
         else:
             print_std_and_log('Booking {} has not client id'.find(str(res['result'])))
+
+        # bind product to deals
+        try:
+            product_id = int(deal[deal_rental_id_key])
+        except TypeError:
+            product_id = None
+
+        if product_id:
+            bitrix_request(_deal_add_product,
+                           params={'id': deal_id,
+                                   'rows': [{
+                                       'PRODUCT_ID': rental_product_ids[int(product_id)],
+                                       # 'SECTION_ID': Cfg.get('btx_product_section_id'),
+                                       # 'PRICE': 123,
+                                       # 'QUANTITY': 1
+                                   }]
+                                   })
+        else:
+            print_std_and_log('Booking {} has not rental id'.find(str(res['result'])))
 
 
 def add_bitrix_fields(add_method, fields, name, callback=None):
@@ -426,10 +531,25 @@ def add_bitrix_fields(add_method, fields, name, callback=None):
             callback(field, res)
 
 
+def upload_products(to_add, to_update, to_delete):
+    print_std_and_log('Updating Bitrix products...')
+    if Cfg.get('btx_remove_old_rows'):
+        delete_bitrix_fields(_product_remove, to_delete, 'products')
+    update_bitrix_fields(_product_update, to_update, 'products')
+    add_bitrix_fields(_product_add, to_add, 'products')
+    print_std_and_log('Updated: {}'.format(len(to_update)))
+    print_std_and_log('Added: {}'.format(len(to_add)))
+    print_std_and_log('Deleted: {}'.format(len(to_delete)))
+    print_std_and_log('Note: The items above may not been delete if remove_old_rows flag is false')
+
+
 def upload_deals(to_add, to_update, to_delete):
     get_contact_ids()
+    get_product_ids()
+    print_std_and_log('Processing Bitrix deals...')
     if Cfg.get('btx_remove_old_rows'):
         delete_bitrix_fields(_deal_remove, to_delete, 'deals')
+
     update_bitrix_fields(_deal_update, to_update, 'deals')
     add_bitrix_fields(_deal_add, to_add, 'deals', add_contacts_to_deals)
     print_std_and_log('Updated: {}'.format(len(to_update)))
@@ -439,12 +559,10 @@ def upload_deals(to_add, to_update, to_delete):
 
 
 def upload_contacts(to_add, to_update, to_delete):
-    print_std_and_log('Uploading contacts...')
+    print_std_and_log('Processing Bitrix contacts...')
     if Cfg.get('btx_remove_old_rows'):
         delete_bitrix_fields(_contact_remove, to_delete, 'contacts')
 
-    update_bitrix_fields(_contact_update, to_update, 'contacts')
-    update_bitrix_fields(_contact_update, to_update, 'contacts')
     update_bitrix_fields(_contact_update, to_update, 'contacts')
     add_bitrix_fields(_contact_add, to_add, 'contacts')
     print_std_and_log('Updated: {}'.format(len(to_update)))
@@ -468,6 +586,10 @@ def run_bitrix():
                password=Cfg.get('db_password'),
                db=Cfg.get('db_name'))
     db_data = get_db_data(db, Cfg.get('db_tables'), charset='utf8')
+
+    rentals = get_products_from_db(db_data)
+    to_add, to_update, to_delete = prepare_products(rentals)
+    upload_products(to_add, to_update, to_delete)
 
     clients = get_clients_from_db(db_data)
     to_add, to_update, to_delete = prepare_contacts(clients)

@@ -67,10 +67,9 @@ class Cfg:
         Cfg.config['btx_private_app_secret_code'] = config_parser.get('bitrix24', 'token_file')
         Cfg.config['btx_client_secret'] = config_parser.get('bitrix24', 'client_secret')
         Cfg.config['btx_client_id'] = config_parser.get('bitrix24', 'client_id')
-        Cfg.config['btx_redirect_uri'] = config_parser.get('bitrix24', 'redirect_uri')
-        Cfg.config['btx_x_per_page'] = config_parser.get('bitrix24', 'x_per_page')
         Cfg.config['btx_payed_status_interval'] = config_parser.getint('bitrix24', 'payed_status_interval')
         Cfg.config['btx_remove_old_rows'] = config_parser.getboolean('bitrix24', 'remove_old_rows')
+        Cfg.config['btx_product_section_id'] = config_parser.getint('bitrix24', 'product_section_id')
 
         Cfg.config['interval_prob'] = []
         is_interval_cmpl = re.compile('(\d+)\s*-\s*(\d+|inf)\s*days\s*(\d+)\%?')
@@ -165,7 +164,7 @@ def generate_initial_queries(table_list, col_names):
 
 def find_dict_in_list(lst, key, value):
     for dic in lst:
-        if dic[key] == value:
+        if str(dic[key]) == str(value):
             return dic
     return None
 
