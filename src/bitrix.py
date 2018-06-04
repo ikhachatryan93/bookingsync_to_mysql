@@ -325,9 +325,9 @@ def get_clients_from_db(db_data):
         contact = {}
         contact['ID'] = client['id']
 
-        contact['NAME'] = client['firstname']
-        contact['LAST_NAME'] = client['lastname']
-        contact['SECOND_NAME'] = client['fullname']
+        contact['NAME'] = client['firstname'] if client['firstname'] else ''
+        contact['LAST_NAME'] = client['lastname'] if client['lastname'] else ''
+        contact['SECOND_NAME'] = client['fullname'] if client['fullname'] else ''
         contact[contact_fields_mapping['street']] = client['address1']
         # contact[contact_fields_mapping['ADDRESS_2']] = client['address2']
         contact[contact_fields_mapping['city']] = client['city']
