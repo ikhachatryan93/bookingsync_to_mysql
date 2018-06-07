@@ -364,6 +364,24 @@ def get_products_from_db(db_data):
     return products
 
 
+client_contact_ids = {}
+
+
+def get_contact_ids():
+    contacts = get_bitrix_data(_contact_list, params={'select': ['ID', 'UF_*']})
+    for c in contacts:
+        client_contact_ids[int(c[contact_client_id_key])] = c['ID']
+
+
+rental_product_ids = {}
+
+
+def get_product_ids():
+    product = get_bitrix_data(_product_list, params={'select': ['ID', 'PROPERTY_*']})
+    for c in product:
+        rental_product_ids[int(c[product_rental_id_key]['value'])] = c['ID']
+
+
 def get_deals_from_db(db_data):
     global deal_fields_mapping
     dm = deal_fields_mapping
@@ -430,7 +448,7 @@ def get_deals_from_db(db_data):
         deal['PROBABILITY'] = booking['probability_win']
         deal[dm['quantity']] = '1'
         deal[dm['bookingsync link']] = 'https://www.bookingsync.com/en/bookings/{}'.format(booking['id'])
-        deal[dm['product']] = product_rental_id_key[booking['rental_id']]
+        deal[dm['product']] = rental_product_ids[booking['rental_id']]
 
         deals.append(deal)
 
@@ -459,24 +477,6 @@ def update_bitrix_fields(update_method, fields, name):
         #     del field[k]
         assert 'ID' in field
         bitrix_request(update_method, params={'id': field['ID'], 'fields': field})
-
-
-client_contact_ids = {}
-
-
-def get_contact_ids():
-    contacts = get_bitrix_data(_contact_list, params={'select': ['ID', 'UF_*']})
-    for c in contacts:
-        client_contact_ids[int(c[contact_client_id_key])] = c['ID']
-
-
-rental_product_ids = {}
-
-
-def get_product_ids():
-    product = get_bitrix_data(_product_list, params={'select': ['ID', 'PROPERTY_*']})
-    for c in product:
-        rental_product_ids[int(c[product_rental_id_key]['value'])] = c['ID']
 
 
 def add_contacts_to_deals(deal, res):
