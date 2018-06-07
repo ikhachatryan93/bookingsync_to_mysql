@@ -340,11 +340,15 @@ def get_clients_from_db(db_data):
         # contact[contact_fields_mapping['mobile']] = client['mobile'] if client['mobile'] else client['phone']
         # contact[contact_fields_mapping['email']] = client['email']
         mobile = client['mobile'] if client['mobile'] else client['phone']
+        mobile = mobile if mobile else ''
         contact['PHONE'] = [{'VALUE': '{}'.format(mobile), 'VALUE_TYPE': "WORK"}]
         contact['EMAIL'] = [{'VALUE': '{}'.format(client['email']), 'VALUE_TYPE': "WORK"}]
         contact[contact_fields_mapping['client id']] = client['id']
         contact['COMMENTS'] = client['notes']
         contacts.append(contact)
+        for k in contact.keys():
+            if contact[k] is None:
+                contact[k] = ''
     return contacts
 
 
@@ -452,6 +456,10 @@ def get_deals_from_db(db_data):
         deal[dm['quantity']] = '1'
         deal[dm['bookingsync link']] = 'https://www.bookingsync.com/en/bookings/{}'.format(booking['id'])
         deal[dm['product']] = rental_product_ids[booking['rental_id']]
+
+        for k in deal.keys():
+            if deal[k] is None:
+                deal[k] = ''
 
         deals.append(deal)
 
