@@ -5,18 +5,14 @@ import re
 import time
 from datetime import datetime
 
-from numpy.ma.bench import m1, m2
-
-from utilities import print_std_and_log
-
 import requests
 import tqdm
-from multidimensional_urlencode import urlencode
 
 from mysql_wrapper import MySQL
 from utilities import Cfg
 from utilities import find_dict_in_list
 from utilities import get_db_data
+from utilities import print_std_and_log
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
 
@@ -76,12 +72,19 @@ def update_token():
             json.dump(_token, fd, ensure_ascii=False)
 
 
-def bitrix_request(method, params={}, rec=True):
+headers = {'content-type': 'application/json'}
+
+
+def bitrix_request(method, params={}, rec=True, post=True):
     url = _main_url.replace('METHOD', method)
     # url = url.replace('AUTH', _token['access_token'])
     params['auth'] = _token['access_token']
 
-    req = requests.get(url, params=urlencode(params))
+    if post:
+        req = requests.post(url, data=json.dumps(params), headers=headers)
+    else:
+        req = requests.get(url, params=params)
+
     if req.status_code == 401:
         if rec:
             update_token()
@@ -502,6 +505,8 @@ def add_contacts_to_deals(deal, res):
                                    })
         else:
             print_std_and_log('Booking {} has not client id'.find(str(res['result'])))
+
+        bitrix_request()
 
         # bind product to deals
         # try:
