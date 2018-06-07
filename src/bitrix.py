@@ -367,6 +367,7 @@ def get_products_from_db(db_data):
 def get_deals_from_db(db_data):
     global deal_fields_mapping
     dm = deal_fields_mapping
+    get_product_ids()
 
     deals = []
     ignored = 0
@@ -429,6 +430,7 @@ def get_deals_from_db(db_data):
         deal['PROBABILITY'] = booking['probability_win']
         deal[dm['quantity']] = '1'
         deal[dm['bookingsync link']] = 'https://www.bookingsync.com/en/bookings/{}'.format(booking['id'])
+        deal[dm['product']] = product_rental_id_key[booking['rental_id']]
 
         deals.append(deal)
 
@@ -502,23 +504,23 @@ def add_contacts_to_deals(deal, res):
             print_std_and_log('Booking {} has not client id'.find(str(res['result'])))
 
         # bind product to deals
-        try:
-            product_id = int(deal[deal_rental_id_key])
-        except TypeError:
-            product_id = None
+        # try:
+        #     product_id = int(deal[deal_rental_id_key])
+        # except TypeError:
+        #     product_id = None
 
-        if product_id:
-            bitrix_request(_deal_add_product,
-                           params={'id': deal_id,
-                                   'rows': [{
-                                       'PRODUCT_ID': rental_product_ids[int(product_id)],
-                                       # 'SECTION_ID': Cfg.get('btx_product_section_id'),
-                                       # 'PRICE': 123,
-                                       # 'QUANTITY': 1
-                                   }]
-                                   })
-        else:
-            print_std_and_log('Booking {} has not rental id'.find(str(res['result'])))
+        # if product_id:
+        #     bitrix_request(_deal_add_product,
+        #                    params={'id': deal_id,
+        #                            'rows': [{
+        #                                'PRODUCT_ID': rental_product_ids[int(product_id)],
+        #                                # 'SECTION_ID': Cfg.get('btx_product_section_id'),
+        #                                # 'PRICE': 123,
+        #                                # 'QUANTITY': 1
+        #                            }]
+        #                            })
+        # else:
+        #     print_std_and_log('Booking {} has not rental id'.find(str(res['result'])))
 
 
 def add_bitrix_fields(add_method, fields, name, callback=None):
