@@ -81,7 +81,7 @@ def bitrix_request(method, params={}, rec=True, post=True):
     params['auth'] = _token['access_token']
 
     if post:
-        req = requests.post(url, data=json.dumps(params), headers=headers)
+        req = requests.post(url, data=params, headers=headers)
     else:
         req = requests.get(url, params=params)
 
@@ -146,7 +146,7 @@ def contains(deal, deals):
 def get_bitrix_data(content_type, params):
     old_size = 0
 
-    req = bitrix_request(content_type, params=params)
+    req = bitrix_request(content_type, params=params, post=False)
     data = req['result']
     if 'next' not in req:
         return data
