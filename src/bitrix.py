@@ -176,7 +176,7 @@ def are_differ(m1, m2):
         # for multifield values
         if type(val1) == list:
             assert type(val2) == list
-            for i, val in val1:
+            for i, val in enumerate(val1):
                 if are_differ(val1, val2[i]):
                     return True
 
