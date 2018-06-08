@@ -179,12 +179,14 @@ def are_differ(m1, m2):
             for i, val in enumerate(val1):
                 if are_differ(val, val2[i]):
                     return True
+            continue
 
         # for multifield values
         if type(val1) == dict:
             assert type(val2) == dict
             if are_differ(val1, val2):
                 return True
+            continue
 
         # change val2 data format to val1
         if type(val1) == datetime:
