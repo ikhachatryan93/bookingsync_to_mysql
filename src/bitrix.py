@@ -4,6 +4,7 @@ import os
 import re
 import time
 from datetime import datetime
+from multidimensional_urlencode import urlencode
 
 import requests
 import tqdm
@@ -83,7 +84,7 @@ def bitrix_request(method, params={}, rec=True, post=True):
     if post:
         req = requests.post(url, data=params, headers=headers)
     else:
-        req = requests.get(url, params=params)
+        req = requests.get(url, params=urlencode(params))
 
     if req.status_code == 401:
         if rec:
