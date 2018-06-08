@@ -194,7 +194,7 @@ def are_differ(m1, m2):
             val2 = datetime.strptime(val2, '%Y-%m-%dT%H:%M:%S{}'.format(tm.group(1)))
 
         # compare as in string format
-        if str(val1) != str(val2):
+        if str(val1).strip() != str(val2).strip():
             print('from {} differ {} and {}'.format(_key, val1, val2))
             return True
 
