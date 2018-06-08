@@ -173,7 +173,14 @@ def are_differ(m1, m2):
         if not val1 and not val2:
             continue
 
-        # for fields like contact.MOBILE and contact.EMAIL
+        # for multifield values
+        if type(val1) == list:
+            assert type(val2) == list
+            for i, val in val1:
+                if are_differ(val1, val2[i]):
+                    return True
+
+        # for multifield values
         if type(val1) == dict:
             assert type(val2) == dict
             if are_differ(val1, val2):
