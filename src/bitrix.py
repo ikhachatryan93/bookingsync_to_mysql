@@ -165,34 +165,35 @@ def get_bitrix_data(content_type, params):
 
 
 def are_differ(m1, m2):
-    for _key in m1.keys():
-        if _key not in m2:
-            logging.error(
-                'Trying to add a field \'{}\' to bitrix which does not exist, please check the code'.format(_key))
-
     for _key, val1 in m1.items():
         if _key == 'ID': continue
-        val2 = m2[_key]
 
-        val1 = val1 if val1 != '0' else None
-        val2 = val2 if val2 != '0' else None
+        val2 = m2[_key] if m2[_key] != '0' else None
+
         if not val1 and not val2:
             continue
 
-        old_val2 = val2
+        # for fields like contact.MOBILE and contact.EMAIL
+        if type(val1) == dict:
+            assert type(val2) == dict
+            if are_differ(val1, val2):
+                return True
+
+        # change val2 data format to val1
         if type(val1) == datetime:
             tm = re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}([\+-]\d{2}:\d{2})', val2)
             val2 = datetime.strptime(val2, '%Y-%m-%dT%H:%M:%S{}'.format(tm.group(1)))
 
+        # compare as in string format
         if str(val1) != str(val2):
-            print('from {} differ {} and {}, {}'.format(_key, val1, val2, old_val2))
+            print('from {} differ {} and {}'.format(_key, val1, val2))
             return True
 
     return False
 
 
 def prepare_contacts(new_clients):
-    bitrix_contacts = get_bitrix_data(_contact_list, params={'select': ['UF_*', '*']})
+    bitrix_contacts = get_bitrix_data(_contact_list, params={'select': ['*', 'UF_*', 'PHONE', 'EMAIL']})
     to_add = []
     to_remove = []
     to_update = []
@@ -340,7 +341,6 @@ def get_clients_from_db(db_data):
         # contact[contact_fields_mapping['mobile']] = client['mobile'] if client['mobile'] else client['phone']
         # contact[contact_fields_mapping['email']] = client['email']
         mobile = client['mobile'] if client['mobile'] else client['phone']
-        mobile = mobile if mobile else ''
         contact['PHONE'] = [{'VALUE': '{}'.format(mobile), 'VALUE_TYPE': "WORK"}]
         contact['EMAIL'] = [{'VALUE': '{}'.format(client['email']), 'VALUE_TYPE': "WORK"}]
         contact[contact_fields_mapping['client id']] = client['id']
