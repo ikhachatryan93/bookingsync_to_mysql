@@ -1,3 +1,4 @@
+
 import json
 import logging
 import os
@@ -46,6 +47,12 @@ _product_add = 'crm.product.add'
 with open(_json_file, 'r') as f:
     _token = json.load(f)
 
+def json_serial(obj):
+    """JSON serializer for objects not serializable by default json code"""
+
+    if isinstance(obj, datetime):
+        return str(obj)
+    raise TypeError ("Type %s not serializable" % type(obj))
 
 class STAGE:
     PAYED = 'PREPARATION'
@@ -82,7 +89,7 @@ def bitrix_request(method, params={}, rec=True, post=True):
     params['auth'] = _token['access_token']
 
     if post:
-        req = requests.post(url, data=params, headers=headers)
+        req = requests.post(url, data=json.dumps(params, default=json_serial), headers=headers)
     else:
         req = requests.get(url, params=urlencode(params))
 
@@ -103,13 +110,14 @@ def bitrix_request(method, params={}, rec=True, post=True):
             print_std_and_log('{} error while requesting a {}'.format(req.status_code, url))
             print_std_and_log('Second try was failed, possible data loss')
 
-    return json.loads(req.content.decode('utf-8'))
+    #return json.loads(req.content.decode('utf-8'))
+    return json.loads(req.text)
 
 
 ### deal fields and mappings
 deal_fields_mapping = {}
 
-fields = bitrix_request(_deal_fields)
+fields = bitrix_request(_deal_fields, {'select': ['UF_*']})
 for key_, val_ in fields['result'].items():
     if str(key_).startswith('UF_CRM_') and 'formLabel' in val_:
         deal_fields_mapping[val_['formLabel'].lower()] = key_
@@ -169,10 +177,7 @@ def are_differ(m1, m2):
     for _key, val1 in m1.items():
         if _key == 'ID': continue
 
-        val2 = m2[_key] if m2[_key] != '0' else None
-
-        if not val1 and not val2:
-            continue
+        val2 = m2[_key]
 
         # for multifield values
         if type(val1) == list:
@@ -189,6 +194,11 @@ def are_differ(m1, m2):
                 return True
             continue
 
+
+        if not val1 and not val2:
+            continue
+
+
         # change val2 data format to val1
         if type(val1) == datetime:
             tm = re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}([\+-]\d{2}:\d{2})', val2)
@@ -196,7 +206,10 @@ def are_differ(m1, m2):
 
         # compare as in string format
         if str(val1).strip() != str(val2).strip():
-            print('from {} differ {} and {}'.format(_key, val1, val2))
+            try:
+                print_std_and_log('for {} key, differ {} and {}'.format(_key, val1.encode('utf8'), val2.encode('utf8')))
+            except:
+                print_std_and_log('for {} key, something is differ')
             return True
 
     return False
@@ -211,7 +224,19 @@ def prepare_contacts(new_clients):
         btx_contact = find_dict_in_list(bitrix_contacts, contact_client_id_key, client['ID'])
 
         if btx_contact:
+            if 'PHONE' not in btx_contact:
+                btx_contact['PHONE'] = [{'VALUE': '', 'VALUE_TYPE': 'OTHER'}]
+            if 'EMAIL' not in btx_contact:
+                btx_contact['EMAIL'] = [{'VALUE': '', 'VALUE_TYPE': 'OTHER'}]
+
+            assert type(btx_contact) == dict
             if are_differ(client, btx_contact):
+                for i, p in enumerate(client['PHONE']):
+                    p['ID'] = btx_contact['PHONE'][i]['ID']
+
+                for i, p in enumerate(client['EMAIL']):
+                    p['ID'] = btx_contact['EMAIL'][i]['ID']
+
                 client['ID'] = btx_contact['ID']
                 to_update.append(client)
 
@@ -238,7 +263,11 @@ def are_differ_products(product, btx_prod):
             if str(val1) != str(val2['value']):
                 return True
         elif str(val1) != str(val2):
-            print('from {} differ {} and {}'.format(_key, val1, val2))
+            try:
+                print_std_and_log('for {} key, differ {} and {}'.format(_key, val1.encode('utf8'), val2.encode('utf8')))
+            except:
+                print_std_and_log('for {} key, something is differ')
+
             return True
 
     return False
@@ -343,21 +372,24 @@ def get_clients_from_db(db_data):
         contact['LAST_NAME'] = client['lastname'] if client['lastname'] else ''
         contact['SECOND_NAME'] = client['fullname'] if client['fullname'] else ''
         contact[contact_fields_mapping['street']] = client['address1']
-        # contact[contact_fields_mapping['ADDRESS_2']] = client['address2']
         contact[contact_fields_mapping['city']] = client['city']
         contact[contact_fields_mapping['country']] = client['country_code']
         contact[contact_fields_mapping['state']] = client['state']
         contact[contact_fields_mapping['prefered language']] = client['preferred_locale']
-        # contact[contact_fields_mapping['mobile']] = client['mobile'] if client['mobile'] else client['phone']
-        # contact[contact_fields_mapping['email']] = client['email']
-        mobile = client['mobile'] if client['mobile'] else client['phone']
-        contact['PHONE'] = [{'VALUE': '{}'.format(mobile), 'VALUE_TYPE': "WORK"}]
-        contact['EMAIL'] = [{'VALUE': '{}'.format(client['email']), 'VALUE_TYPE': "WORK"}]
+
+        mobile = client['mobile'] if client['mobile'] else client['phone'] if client['phone'] else ''
+        contact['PHONE'] = [{'VALUE': '{}'.format(m), 'VALUE_TYPE': "OTHER"} for m in mobile.split(',')]
+        
+        email = client['email'] if client['email'] else ''
+        contact['EMAIL'] = [{'VALUE': '{}'.format(e), 'VALUE_TYPE': "OTHER"} for e in email.split(',')]
+            
+
         contact[contact_fields_mapping['client id']] = client['id']
         contact['COMMENTS'] = client['notes']
         contacts.append(contact)
+
         for k in contact.keys():
-            if contact[k] is None:
+            if not contact[k]:
                 contact[k] = ''
     return contacts
 
@@ -416,8 +448,12 @@ def get_deals_from_db(db_data):
         deal['CURRENCY_ID'] = booking['currency']
 
         deal[dm['available to everyone']] = '1'
-        deal[dm['assumed close date']] = booking['end_at']
-        deal[dm['start date']] = booking['start_at']
+
+        start_at = booking['start_at']
+        end_at = booking['end_at']
+        deal[dm['assumed close date']] = end_at
+        deal[dm['start date']] = start_at
+        deal['STAGE_ID'] = get_stage(start_at, end_at, booking['status'])
 
         # deal['RESPONSIBLE'] = 'unassigned'
         deal[dm['adults arrived']] = booking['adults']
@@ -430,8 +466,6 @@ def get_deals_from_db(db_data):
         deal[dm['check in time']] = ci if ci else None
         deal[dm['check out time']] = co if co else None
 
-        start_at = booking['start_at']
-        end_at = booking['end_at']
 
         try:
             deal[dm['number of nights']] = (end_at.date() - start_at.date()).days
@@ -457,8 +491,6 @@ def get_deals_from_db(db_data):
         deal[dm['event description']] = client_name + ', ' + rental_name + ', from {}, {} night(s)'.format(
             booking['start_at'].date(), deal[dm['number of nights']])
         deal['TITLE'] = deal[dm['event description']]
-
-        deal['STAGE_ID'] = get_stage(start_at, end_at, booking['status'])
 
         deal[dm['comments booking']] = booking['comments']
         deal[dm['source']] = booking['source']
@@ -510,7 +542,7 @@ def add_contacts_to_deals(deal, res):
         # bind contact to deals
         try:
             client_id = int(deal[deal_client_id_key])
-        except TypeError:
+        except (ValueError, TypeError):
             client_id = None
 
         if client_id:
@@ -523,8 +555,6 @@ def add_contacts_to_deals(deal, res):
                                    })
         else:
             print_std_and_log('Booking {} has not client id'.find(str(res['result'])))
-
-        bitrix_request()
 
         # bind product to deals
         # try:
