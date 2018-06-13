@@ -1,4 +1,3 @@
-
 import json
 import logging
 import os
@@ -47,12 +46,14 @@ _product_add = 'crm.product.add'
 with open(_json_file, 'r') as f:
     _token = json.load(f)
 
+
 def json_serial(obj):
     """JSON serializer for objects not serializable by default json code"""
 
     if isinstance(obj, datetime):
         return str(obj)
-    raise TypeError ("Type %s not serializable" % type(obj))
+    raise TypeError("Type %s not serializable" % type(obj))
+
 
 class STAGE:
     PAYED = 'PREPARATION'
@@ -110,11 +111,11 @@ def bitrix_request(method, params={}, rec=True, post=True):
             print_std_and_log('{} error while requesting a {}'.format(req.status_code, url))
             print_std_and_log('Second try was failed, possible data loss')
 
-    #return json.loads(req.content.decode('utf-8'))
+    # return json.loads(req.content.decode('utf-8'))
     return json.loads(req.text)
 
 
-### deal fields and mappings
+# deal fields and mappings
 deal_fields_mapping = {}
 
 fields = bitrix_request(_deal_fields, {'select': ['UF_*']})
@@ -125,7 +126,7 @@ for key_, val_ in fields['result'].items():
 deal_client_id_key = deal_fields_mapping['client id']
 deal_rental_id_key = deal_fields_mapping['rental id']
 
-### contact fields and mappings
+# contact fields and mappings
 contact_fields_mapping = {}
 
 fields = bitrix_request(_contact_fields)
@@ -135,7 +136,7 @@ for key_, val_ in fields['result'].items():
 
 contact_client_id_key = contact_fields_mapping['client id']
 
-### product fields and mappings
+# product fields and mappings
 product_fields_mapping = {}
 fields = bitrix_request(_product_fields)
 for key_, val_ in fields['result'].items():
@@ -173,43 +174,66 @@ def get_bitrix_data(content_type, params):
     return data
 
 
-def are_differ(m1, m2):
-    for _key, val1 in m1.items():
-        if _key == 'ID': continue
+def are_differ(bookingsync_record, bitrix_record, exceptions: list):
+    for _key, bks_field in bookingsync_record.items():
+        if _key != exceptions:
+            continue
 
-        val2 = m2[_key]
+        btx_field = bitrix_record[_key]
 
-        # for multifield values
-        if type(val1) == list:
-            assert type(val2) == list
-            for i, val in enumerate(val1):
-                if are_differ(val, val2[i]):
+        # for multi-field values
+        if type(bks_field) == list:
+            assert type(btx_field) == list
+            for i, val in enumerate(bks_field):
+                if are_differ(val, btx_field[i], exceptions):
                     return True
             continue
 
-        # for multifield values
-        if type(val1) == dict:
-            assert type(val2) == dict
-            if are_differ(val1, val2):
+        # for multi-field values
+        if type(bks_field) == dict:
+            assert type(btx_field) == dict
+            if are_differ(bks_field, btx_field, exceptions):
                 return True
             continue
 
+        if not bks_field and not btx_field:
+            continue
+
+        # change btx_field data format to bks_field
+        if type(bks_field) == datetime:
+            tm = re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}([\+-]\d{2}:\d{2})', btx_field)
+            btx_field = datetime.strptime(btx_field, '%Y-%m-%dT%H:%M:%S{}'.format(tm.group(1)))
+
+        # compare in string format
+        if str(bks_field).strip() != str(btx_field).strip():
+            try:
+                print_std_and_log('for {} key, differ {} and {}'.format(_key, bks_field, btx_field))
+            except UnicodeEncodeError:
+                print_std_and_log('for {} key, something is differ')
+            return True
+
+    return False
+
+
+def are_differ_products(bookingsync_record, bitrix_record):
+    for _key, val1 in bookingsync_record.items():
+        if _key not in Cfg.get('btx_product_mutable_fields'):
+            continue
+
+        val2 = bitrix_record[_key]
 
         if not val1 and not val2:
             continue
 
-
-        # change val2 data format to val1
-        if type(val1) == datetime:
-            tm = re.search(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}([\+-]\d{2}:\d{2})', val2)
-            val2 = datetime.strptime(val2, '%Y-%m-%dT%H:%M:%S{}'.format(tm.group(1)))
-
-        # compare as in string format
-        if str(val1).strip() != str(val2).strip():
+        if type(val2) == dict:
+            if str(val1) != str(val2['value']):
+                return True
+        elif str(val1) != str(val2):
             try:
-                print_std_and_log('for {} key, differ {} and {}'.format(_key, val1.encode('utf8'), val2.encode('utf8')))
-            except:
+                print_std_and_log('for {} key, differ {} and {}'.format(_key, val1, val2))
+            except UnicodeEncodeError:
                 print_std_and_log('for {} key, something is differ')
+
             return True
 
     return False
@@ -230,7 +254,7 @@ def prepare_contacts(new_clients):
                 btx_contact['EMAIL'] = [{'VALUE': '', 'VALUE_TYPE': 'OTHER'}]
 
             assert type(btx_contact) == dict
-            if are_differ(client, btx_contact):
+            if are_differ(client, btx_contact, Cfg.get('btx_contact_mutable_fields')):
                 for i, p in enumerate(client['PHONE']):
                     p['ID'] = btx_contact['PHONE'][i]['ID']
 
@@ -248,29 +272,6 @@ def prepare_contacts(new_clients):
         to_remove.append(old_deal['ID'])
 
     return to_add, to_update, to_remove
-
-
-def are_differ_products(product, btx_prod):
-    for _key, val1 in product.items():
-        if _key == 'ID': continue
-
-        val2 = btx_prod[_key]
-
-        if not val1 and not val2:
-            continue
-
-        if type(val2) == dict:
-            if str(val1) != str(val2['value']):
-                return True
-        elif str(val1) != str(val2):
-            try:
-                print_std_and_log('for {} key, differ {} and {}'.format(_key, val1.encode('utf8'), val2.encode('utf8')))
-            except:
-                print_std_and_log('for {} key, something is differ')
-
-            return True
-
-    return False
 
 
 def find_product_in_list(lst, key, value):
@@ -309,12 +310,13 @@ def prepare_deals(new_deals):
     to_update = []
     id_key = deal_fields_mapping.get('id booking (source)')
     for deal in new_deals:
-        btx_deal = find_dict_in_list(bitrix_deals, id_key, deal[id_key])
+        btx_deal = find_dict_in_list(lst=bitrix_deals, key=id_key, value=deal[id_key])
 
         if btx_deal:
-            # a workaround
+            # a workaround for difference of precisions
             btx_deal['OPPORTUNITY'] = None if not btx_deal['OPPORTUNITY'] else float(btx_deal['OPPORTUNITY'])
-            if are_differ(deal, btx_deal):
+
+            if are_differ(deal, btx_deal, Cfg.get('btx_deal_mutable_fields')):
                 deal['ID'] = btx_deal['ID']
                 to_update.append(deal)
 
@@ -334,9 +336,7 @@ def get_returning_host(client_id, bookings):
         if client_id == b['client_id']:
             n += 1
 
-    if n > 1:
-        return '1'
-    return '0'
+    return '1' if n > 1 else '0'
 
 
 def get_stage(start_at, end_at, status):
@@ -356,8 +356,8 @@ def get_stage(start_at, end_at, status):
             stage_id = STAGE.DEPARTED
         elif 0 < reserv_days_ahead <= Cfg.get('btx_payed_status_interval'):
             stage_id = STAGE.PAYED
-    except:
-        pass
+    except Exception as e:
+        print_std_and_log('Problem when trying to count stage_id: {}'.format(str(e)))
 
     return stage_id
 
@@ -365,9 +365,9 @@ def get_stage(start_at, end_at, status):
 def get_clients_from_db(db_data):
     contacts = []
     for client in db_data['clients']:
-        contact = {}
-        contact['ID'] = client['id']
+        contact = dict()
 
+        contact['ID'] = client['id']
         contact['NAME'] = client['firstname'] if client['firstname'] else ''
         contact['LAST_NAME'] = client['lastname'] if client['lastname'] else ''
         contact['SECOND_NAME'] = client['fullname'] if client['fullname'] else ''
@@ -379,10 +379,9 @@ def get_clients_from_db(db_data):
 
         mobile = client['mobile'] if client['mobile'] else client['phone'] if client['phone'] else ''
         contact['PHONE'] = [{'VALUE': '{}'.format(m), 'VALUE_TYPE': "OTHER"} for m in mobile.split(',')]
-        
+
         email = client['email'] if client['email'] else ''
         contact['EMAIL'] = [{'VALUE': '{}'.format(e), 'VALUE_TYPE': "OTHER"} for e in email.split(',')]
-            
 
         contact[contact_fields_mapping['client id']] = client['id']
         contact['COMMENTS'] = client['notes']
@@ -466,7 +465,6 @@ def get_deals_from_db(db_data):
         deal[dm['check in time']] = ci if ci else None
         deal[dm['check out time']] = co if co else None
 
-
         try:
             deal[dm['number of nights']] = (end_at.date() - start_at.date()).days
         except (ValueError, TypeError):
@@ -521,10 +519,10 @@ def delete_bitrix_fields(remove_method, field_ids, name):
 
 
 def update_bitrix_fields(update_method, fields, name):
-    tq = tqdm.tqdm(total=len(fields))
-    tq.set_description('Updating modified {}'.format(name))
+    status_bar = tqdm.tqdm(total=len(fields))
+    status_bar.set_description('Updating modified {}'.format(name))
     for field in fields:
-        tq.update(1)
+        status_bar.update(1)
         # for k, v in list(field.items()):
         # if not v:
         #     del field[k]
@@ -576,14 +574,14 @@ def add_contacts_to_deals(deal, res):
         #     print_std_and_log('Booking {} has not rental id'.find(str(res['result'])))
 
 
-def add_bitrix_fields(add_method, fields, name, callback=None):
-    tq = tqdm.tqdm(total=len(fields))
-    tq.set_description('Adding new {}'.format(name))
-    for field in fields:
-        tq.update(1)
-        res = bitrix_request(add_method, params={'fields': field})
+def add_bitrix_fields(add_method, records, name, callback=None):
+    progress_bar = tqdm.tqdm(total=len(records))
+    progress_bar.set_description('Adding new {}'.format(name))
+    for record in records:
+        progress_bar.update(1)
+        res = bitrix_request(add_method, params={'fields': record})
         if callback:
-            callback(field, res)
+            callback(record, res)
 
 
 def upload_products(to_add, to_update, to_delete):
@@ -624,13 +622,6 @@ def upload_contacts(to_add, to_update, to_delete):
     print_std_and_log('Added: {}'.format(len(to_add)))
     print_std_and_log('Deleted: {}'.format(len(to_delete)))
     print_std_and_log('Note: The items above may not been delete if remove_old_rows flag is false')
-
-
-# def bind_contact_to_deal(deal):
-#     contact_id = deal[fields_mapping.get('client id')]
-#     btx_contact = bitrix_request('crm.contact.get', params={'id': contact_id})
-#     if 'result' in btx_contact:
-#         bitrix_request()
 
 
 def run_bitrix():

@@ -23,7 +23,8 @@ def print_std_and_log(msg):
 
 
 class Cfg:
-    cfg_file = dir_path + os.sep + '..' + os.sep + 'configs.ini'
+    bitrix_cfg_file = dir_path + os.sep + '..' + os.sep + 'configs/bitrix.ini'
+    bookingsync_cfg_file = dir_path + os.sep + '..' + os.sep + 'configs/bookingsync.ini'
     # input_file = "input.txt"
     config = {}
     parsed = False
@@ -32,11 +33,7 @@ class Cfg:
     def parse_config_file():
         config_parser = configparser.RawConfigParser()
         config_parser.optionxform = str
-        config_parser.read(Cfg.cfg_file)
-
-        Cfg.config['login'] = config_parser.get('config', 'login')
-        Cfg.config['password'] = config_parser.get('config', 'password')
-        Cfg.config['home_url'] = config_parser.get('config', 'home_url')
+        config_parser.read(Cfg.bookingsync_cfg_file)
 
         # mysql
         Cfg.config['db_name'] = config_parser.get('mysql', 'name')
@@ -62,14 +59,19 @@ class Cfg:
         Cfg.config['bks_booking_comments_base_url'] = config_parser.get('bookingsync', 'comments_base_url')
         Cfg.config['bks_clean_before_insert'] = config_parser.getboolean('bookingsync', 'clean_before_insert')
 
+        config_parser = configparser.RawConfigParser()
+        config_parser.optionxform = str
+        config_parser.read(Cfg.bitrix_cfg_file)
+
         # bitrix24
-        Cfg.config['btx_token_file'] = config_parser.get('bitrix24', 'token_file')
-        Cfg.config['btx_private_app_secret_code'] = config_parser.get('bitrix24', 'token_file')
-        Cfg.config['btx_client_secret'] = config_parser.get('bitrix24', 'client_secret')
-        Cfg.config['btx_client_id'] = config_parser.get('bitrix24', 'client_id')
-        Cfg.config['btx_payed_status_interval'] = config_parser.getint('bitrix24', 'payed_status_interval')
-        Cfg.config['btx_remove_old_rows'] = config_parser.getboolean('bitrix24', 'remove_old_rows')
-        Cfg.config['btx_product_section_id'] = config_parser.getint('bitrix24', 'product_section_id')
+        Cfg.config['btx_token_file'] = config_parser.get('bitrix24_auth', 'token_file')
+        Cfg.config['btx_private_app_secret_code'] = config_parser.get('bitrix24_auth', 'token_file')
+        Cfg.config['btx_client_secret'] = config_parser.get('bitrix24_auth', 'client_secret')
+        Cfg.config['btx_client_id'] = config_parser.get('bitrix24_auth', 'client_id')
+        Cfg.config['btx_payed_status_interval'] = config_parser.getint('other', 'payed_status_interval')
+        Cfg.config['btx_remove_old_rows'] = config_parser.getboolean('other', 'remove_old_rows')
+        Cfg.config['btx_product_section_id'] = config_parser.getint('other', 'product_section_id')
+        Cfg.config['btx_clean_before_insert'] = config_parser.getboolean('other', 'clean_before_insert')
 
         Cfg.config['interval_prob'] = []
         is_interval_cmpl = re.compile('(\d+)\s*-\s*(\d+|inf)\s*days\s*(\d+)\%?')
@@ -82,6 +84,10 @@ class Cfg:
                 exit(1)
 
         Cfg.parsed = True
+
+        Cfg.config['btx_deal_mutable_fields'] = config_parser.get('update_fields', 'deal').split()
+        Cfg.config['btx_contact_mutable_fields'] = config_parser.get('update_fields', 'contact').split()
+        Cfg.config['btx_product_mutable_fields'] = config_parser.get('update_fields', 'product').split()
 
     @staticmethod
     def get_interval_prob(interval):
@@ -99,14 +105,6 @@ class Cfg:
         if not Cfg.parsed:
             Cfg.parse_config_file()
         return Cfg.config[key]
-
-    @staticmethod
-    def set(section, key, value):
-        parser = configparser.ConfigParser()
-        parser.read(Cfg.cfg_file)
-        parser.set(section, key, value)
-        with open(Cfg.cfg_file, 'w+') as f:
-            parser.write(f)
 
     @staticmethod
     def get_mapping():
