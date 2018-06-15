@@ -81,7 +81,7 @@ def update_token():
             json.dump(_token, fd, ensure_ascii=False)
 
 
-headers = {'content-type': 'application/json'}
+headers = {'content-type': 'application/json', 'charset': 'UTF-8'}
 
 
 def bitrix_request(method, params={}, rec=True, post=True):
@@ -593,7 +593,7 @@ def upload_products(to_add, to_update, to_delete):
     print_std_and_log('Updated: {}'.format(len(to_update)))
     print_std_and_log('Added: {}'.format(len(to_add)))
     print_std_and_log('Deleted: {}'.format(len(to_delete)))
-    print_std_and_log('Note: The items above may not been delete if remove_old_rows flag is false')
+    print_std_and_log('Note: The items above will not deleted if remove_old_rows flag is false')
 
 
 def upload_deals(to_add, to_update, to_delete):
@@ -608,7 +608,7 @@ def upload_deals(to_add, to_update, to_delete):
     print_std_and_log('Updated: {}'.format(len(to_update)))
     print_std_and_log('Added: {}'.format(len(to_add)))
     print_std_and_log('Deleted: {}'.format(len(to_delete)))
-    print_std_and_log('Note: The items above may not been delete if remove_old_rows flag is false')
+    print_std_and_log('Note: The items above will not deleted if remove_old_rows flag is false')
 
 
 def upload_contacts(to_add, to_update, to_delete):
