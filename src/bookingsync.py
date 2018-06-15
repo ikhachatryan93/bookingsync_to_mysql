@@ -40,7 +40,7 @@ def update_token():
 
 
 def request_data(url, params=None, rec=True):
-    headers = {'Authorization': str('Bearer ' + _token['access_token']), 'content-type': 'application/json'}
+    headers = {'Authorization': str('Bearer ' + _token['access_token']), 'content-type': 'application/json', 'charset': 'UTF-8'}
 
     req = requests.get(url, headers=headers, params=params)
     if req.status_code == 401:
