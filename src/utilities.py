@@ -7,7 +7,6 @@ import re
 import sys
 import time
 import traceback
-import json
 from datetime import datetime, date
 
 from mysql_wrapper import MySQL

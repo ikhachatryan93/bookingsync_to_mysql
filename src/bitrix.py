@@ -80,7 +80,7 @@ def update_token():
             json.dump(_token, fd, ensure_ascii=False)
 
 
-headers = {'content-type': 'application/json'}
+headers = {'content-type': 'application/json', 'charset': 'UTF-8'}
 
 
 def bitrix_request(method, params, rec=True, post=True):
