@@ -1,3 +1,4 @@
+import codecs
 import configparser
 import copy
 import logging
@@ -7,7 +8,7 @@ import sys
 import time
 import traceback
 import json
-from datetime import datetime
+from datetime import datetime, date
 
 from mysql_wrapper import MySQL
 
@@ -15,11 +16,6 @@ dir_path = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(os.path.join(dir_path, "drivers"))
 
 _mysql_date_format = '%Y-%m-%d %H:%M:%S'
-
-
-def print_std_and_log(msg):
-    logging.info(msg)
-    print(msg)
 
 
 class Cfg:
@@ -33,7 +29,8 @@ class Cfg:
     def parse_config_file():
         config_parser = configparser.RawConfigParser()
         config_parser.optionxform = str
-        config_parser.read(Cfg.bookingsync_cfg_file)
+        # config_parser.read(Cfg.bookingsync_cfg_file)
+        config_parser.readfp(codecs.open(Cfg.bookingsync_cfg_file, "r", "utf8"))
 
         # mysql
         Cfg.config['db_name'] = config_parser.get('mysql', 'name')
@@ -59,6 +56,16 @@ class Cfg:
         Cfg.config['bks_booking_comments_base_url'] = config_parser.get('bookingsync', 'comments_base_url')
         Cfg.config['bks_clean_before_insert'] = config_parser.getboolean('bookingsync', 'clean_before_insert')
 
+        Cfg.config['tax_mapping'] = {}
+        for i in config_parser.get('tax_mapping', 'city_tax').split('/'):
+            Cfg.config['tax_mapping'][i.lower()] = 'city tax'
+
+        for i in config_parser.get('tax_mapping', 'cleaning_fee').split('/'):
+            Cfg.config['tax_mapping'][i.lower()] = 'cleaning fee'
+
+        for i in config_parser.get('tax_mapping', 'vat').split('/'):
+            Cfg.config['tax_mapping'][i.lower()] = 'vat'
+
         config_parser = configparser.RawConfigParser()
         config_parser.optionxform = str
         config_parser.read(Cfg.bitrix_cfg_file)
@@ -80,7 +87,7 @@ class Cfg:
             if match:
                 Cfg.config['interval_prob'].append((match.group(1), match.group(2), match.group(3)))
             else:
-                print_std_and_log('Error while parsing {} interval'.format(var_name))
+                logging.info('Error while parsing {} interval'.format(var_name))
                 exit(1)
 
         Cfg.parsed = True
@@ -97,7 +104,7 @@ class Cfg:
             if float(pr[0]) <= float(interval) <= float(pr[1]):
                 return pr[2]
 
-        print_std_and_log('Could not find probability for interval: {}'.format(interval))
+        logging.info('Could not find probability for interval: {}'.format(interval))
         return None
 
     @staticmethod
@@ -191,10 +198,7 @@ def prepare_data_for_db(db, response_dict):
                         my_row[col_name] = ''
 
                     if my_row[col_name] != col_value:
-                        print('from {} table db {}={} source {}={}'.format(key, col_name, col_value, col_name,
-                                                                           my_row[col_name]))
-                        logging.warning('from {} table db {}={} source {}={}'.format(key, col_name, col_value, col_name,
-                                                                                     my_row[col_name]))
+                        logging.info('from {} table db {}={} source {}={}'.format(key, col_name, col_value, col_name, my_row[col_name]))
                         to_update.append(my_row)
                         break
 
@@ -233,6 +237,8 @@ def process_column_value(col):
         return 'null,'
     elif type(col) == datetime:
         return '"{}",'.format(str(col))
+    elif type(col) == date:
+        return '"{}",'.format(str(col))
     elif type(col) == int or type(col) == float:
         return '{},'.format(col)
     elif type(col) == bool:
@@ -262,7 +268,7 @@ def update_modified_rows(db, to_update, column_names):
 
 
 def write_data_to_db(db: MySQL, dt: dict, table_list: list, package_size=500):
-    print_std_and_log('Writing db ...')
+    logging.info('Writing db ...')
     start_time = time.time()
 
     column_names = get_col_names_by_table(db, table_list=table_list)
@@ -284,7 +290,10 @@ def write_data_to_db(db: MySQL, dt: dict, table_list: list, package_size=500):
         for record in table:
             values = ''
             for col_name in column_names[tbl_name]:
-                values += process_column_value(record[col_name])
+                try:
+                    values += process_column_value(record[col_name])
+                except:
+                    logging.info('q')
 
             write_query = '({})'.format(values.strip(','))
             data_for_db += (',{}'.format(write_query) if count != 0 else write_query)
@@ -294,7 +303,7 @@ def write_data_to_db(db: MySQL, dt: dict, table_list: list, package_size=500):
                 try:
                     db.insert(data_for_db)
                 except:
-                    print_std_and_log(traceback.format_exc())
+                    logging.info(traceback.format_exc())
 
                 data_for_db = copy.deepcopy(initial_queries[tbl_name])
                 count = 0
@@ -303,15 +312,15 @@ def write_data_to_db(db: MySQL, dt: dict, table_list: list, package_size=500):
             try:
                 db.insert(data_for_db)
             except:
-                print_std_and_log(traceback.format_exc())
+                logging.info(traceback.format_exc())
 
     db.disconnect()
     elapsed_time = time.time() - start_time
 
-    print_std_and_log('DB write is finished in {} seconds'.format(elapsed_time))
+    logging.info('DB write is finished in {} seconds'.format(elapsed_time))
     for t in table_list:
-        print_std_and_log('{} records added: {}'.format(t, len(to_insert[t])))
-        print_std_and_log('{} records updated: {}'.format(t, len(to_update[t])))
-        print_std_and_log('{} records deleted {}'.format(t, len(to_delete[t])))
+        logging.info('{} records added: {}'.format(t, len(to_insert[t])))
+        logging.info('{} records updated: {}'.format(t, len(to_update[t])))
+        logging.info('{} records deleted {}'.format(t, len(to_delete[t])))
 
     return 0

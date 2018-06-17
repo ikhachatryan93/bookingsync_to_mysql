@@ -1,15 +1,17 @@
 import json
+import logging
 import os
 import sys
 import time
-import requests
-import logging
 from datetime import datetime
-from utilities import Cfg
+from datetime import timedelta
+
+import requests
+
 from mysql_wrapper import MySQL
-from utilities import write_data_to_db
+from utilities import Cfg
 from utilities import find_dict_in_list
-from utilities import print_std_and_log
+from utilities import write_data_to_db
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
 
@@ -103,9 +105,9 @@ def to_int(num):
     return num
 
 
-def to_float(num):
+def to_float(num, prec=2):
     if num:
-        return round(float(num), 2)
+        return round(float(num), prec)
     return num
 
 
@@ -114,15 +116,15 @@ def get_bookings(bookings):
 
     t_ren = time.time()
     sources = advanced_request('source', params={'from': '20111101', 'fields': 'id,name'})
-    print_std_and_log('Obtained Sources data in {} sec'.format(time.time() - t_ren))
+    logging.info('Obtained Sources data in {} sec'.format(time.time() - t_ren))
 
     t_ren = time.time()
     comments = advanced_request('booking_comment', params={'from': '20111101', 'fields': 'id,content'})
-    print_std_and_log('Obtained Comments data in {} sec'.format(time.time() - t_ren))
+    logging.info('Obtained Comments data in {} sec'.format(time.time() - t_ren))
 
     t_ren = time.time()
     accounts = request_data(Cfg.get('bks_accounts_base_url'), params={'fields': 'id,business_name'})
-    print_std_and_log('Obtained Accounts data in {} sec'.format(time.time() - t_ren))
+    logging.info('Obtained Accounts data in {} sec'.format(time.time() - t_ren))
 
     for b in bookings:
         my_booking = {'id': int(b['id']),
@@ -281,32 +283,106 @@ def get_bookings_fee(bookings_fee):
                    'created_at': to_datetime(fee['created_at']), 'booking_id': to_int(fee['links']['booking']),
                    'included_in_price': fee['included_in_price'], 'price': to_float(fee['price']),
                    'required': fee['required'],
-                   'times_booked': int(fee['times_booked']),
-                   'name': None if 'en' not in fee['name'] else fee['name']['en']}
+                   'times_booked': int(fee['times_booked'])}
+
+        bfee_names = Cfg.get('tax_mapping')
+
+        my_bfee['name'] = ''
+        for loc in fee['name'].keys():
+            if fee['name'][loc]:
+                try:
+                    my_bfee['name'] = bfee_names[fee['name'][loc].lower()]
+                    break
+                except (KeyError, ValueError):
+                    continue
 
         my_bfees.append(my_bfee)
     return my_bfees
 
 
+def daterange(start_date, end_date):
+    for n in range(int((end_date - start_date).days)):
+        yield start_date + timedelta(n)
+
+
+def get_bookings_fee_splitted(bookings_fee, bookings):
+    my_splitted_fees = []
+    a_day = timedelta(days=1)
+
+    for fee in bookings_fee:
+        id_ = int(fee['id']) * 100
+
+        bkg = find_dict_in_list(bookings, 'id', fee['booking_id'])
+
+        start_at = bkg['start_at'].date()
+        end_at = bkg['end_at'].date()
+
+        if start_at.month == end_at.month and start_at.year == end_at.year:
+            my_splitted_fees.append(
+                {'name': fee['name'], 'id': id_, 'booking_id': bkg['id'], 'bookings_fee_id': fee['id'],
+                 'start_at': start_at, 'end_at': end_at, 'price': fee['price'],
+                 'number_of_nights': end_at.day - start_at.day}
+            )
+        else:
+            daily_fee = to_float(fee['price'] / (end_at - start_at).days, 4)
+            current = start_at
+            current_start_date = start_at
+
+            while current <= end_at:
+                if current.month != current_start_date.month:
+                    number_of_nights = (current - current_start_date).days
+                    my_splitted_fees.append(
+                        {'id': id_,
+                         'name': fee['name'],
+                         'booking_id': bkg['id'],
+                         'bookings_fee_id': fee['id'],
+                         'start_at': current_start_date,
+                         'end_at': current - a_day,
+                         'number_of_nights': number_of_nights,
+                         'price': to_float(daily_fee * number_of_nights, 4)}
+                    )
+
+                    current_start_date = current
+                    id_ += 1
+
+                elif current == end_at:
+                    number_of_nights = (current - current_start_date).days
+                    my_splitted_fees.append(
+                        {'id': id_,
+                         'name': fee['name'],
+                         'booking_id': bkg['id'],
+                         'bookings_fee_id': fee['id'],
+                         'start_at': current_start_date,
+                         'end_at': current,
+                         'number_of_nights': number_of_nights,
+                         'price': to_float(daily_fee * number_of_nights, 4)}
+                    )
+                    break
+
+                current += a_day
+
+    return my_splitted_fees
+
+
 def run_bookingsync():
     t_total = time.time()
-    print_std_and_log('Obtaining data from bookingsync...')
+    logging.info('Obtaining data from bookingsync...')
 
     t_bfe = time.time()
     bookings_fee = advanced_request('bookings_fee')
-    print_std_and_log('Obtained Bookings fee data in {} sec'.format(time.time() - t_bfe))
+    logging.info('Obtained Bookings fee data in {} sec'.format(time.time() - t_bfe))
 
     t_bkg = time.time()
     bookings = advanced_request('booking', params={'from': '20111101'})
-    print_std_and_log('Obtained Bookings data in {} sec'.format(time.time() - t_bkg))
+    logging.info('Obtained Bookings data in {} sec'.format(time.time() - t_bkg))
 
     t_cl = time.time()
     clients = advanced_request('client', params={'from': '20111101'})
-    print_std_and_log('Obtained Clients data in {} sec'.format(time.time() - t_cl))
+    logging.info('Obtained Clients data in {} sec'.format(time.time() - t_cl))
 
     t_ren = time.time()
     rentals = advanced_request('rental', params={'from': '20111101'})
-    print_std_and_log('Obtained Rentals data in {} sec'.format(time.time() - t_ren))
+    logging.info('Obtained Rentals data in {} sec'.format(time.time() - t_ren))
 
     t_prc = time.time()
     data = {'clients': get_clients(clients),
@@ -314,22 +390,24 @@ def run_bookingsync():
             'bookings': get_bookings(bookings),
             'bookings_fee': get_bookings_fee(bookings_fee)}
 
+    data['bookings_fee_splitted'] = get_bookings_fee_splitted(data['bookings_fee'], data['bookings'])
+
     for b in data['bookings']:
         if b['client_id'] and not find_dict_in_list(data['clients'], 'id', b['client_id']):
-            # print_std_and_log('Invalid foreign key client_id {}'.format(b['client_id']))
+            # logging.info('Invalid foreign key client_id {}'.format(b['client_id']))
             b['client_id'] = None
 
         if b['rental_id'] and not find_dict_in_list(data['rentals'], 'id', b['rental_id']):
-            # print_std_and_log('Invalid foreign key renal_id {}'.format(b['rental_id']))
+            # logging.info('Invalid foreign key renal_id {}'.format(b['rental_id']))
             b['rental_id'] = None
 
     for bf in data['bookings_fee']:
         if bf['booking_id'] and not find_dict_in_list(data['bookings'], 'id', bf['booking_id']):
-            # print_std_and_log('Invalid foreign key booking_id {}'.format(bf['booking_id']))
+            # logging.info('Invalid foreign key booking_id {}'.format(bf['booking_id']))
             bf['booking_id'] = None
 
-    print_std_and_log('Processed obtained data in {} sec'.format(time.time() - t_prc))
-    print_std_and_log('Completed in {} second.'.format(time.time() - t_total))
+    logging.info('Processed obtained data in {} sec'.format(time.time() - t_prc))
+    logging.info('Completed in {} second.'.format(time.time() - t_total))
 
     db = MySQL(host=Cfg.get('db_host'),
                port=int(Cfg.get('db_port')),

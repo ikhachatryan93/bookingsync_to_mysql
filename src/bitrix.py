@@ -13,7 +13,6 @@ from mysql_wrapper import MySQL
 from utilities import Cfg
 from utilities import find_dict_in_list
 from utilities import get_db_data
-from utilities import print_std_and_log
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
 
@@ -84,7 +83,7 @@ def update_token():
 headers = {'content-type': 'application/json'}
 
 
-def bitrix_request(method, params={}, rec=True, post=True):
+def bitrix_request(method, params, rec=True, post=True):
     url = _main_url.replace('METHOD', method)
     # url = url.replace('AUTH', _token['access_token'])
     params['auth'] = _token['access_token']
@@ -108,11 +107,11 @@ def bitrix_request(method, params={}, rec=True, post=True):
         if rec:
             return bitrix_request(method, params, rec=False)
         else:
-            print_std_and_log('{} error while requesting a {}'.format(req.status_code, url))
-            print_std_and_log('Second try was failed, possible data loss')
+            logging.info('{} error while requesting a {}'.format(req.status_code, url))
+            logging.info('Second try was failed, possible data loss')
 
     # return json.loads(req.content.decode('utf-8'))
-    return json.loads(req.text)
+    return req.json()
 
 
 # deal fields and mappings
@@ -129,7 +128,7 @@ deal_rental_id_key = deal_fields_mapping['rental id']
 # contact fields and mappings
 contact_fields_mapping = {}
 
-fields = bitrix_request(_contact_fields)
+fields = bitrix_request(_contact_fields, params={})
 for key_, val_ in fields['result'].items():
     if str(key_).startswith('UF_CRM_') and 'formLabel' in val_:
         contact_fields_mapping[val_['formLabel'].lower()] = key_
@@ -138,7 +137,7 @@ contact_client_id_key = contact_fields_mapping['client id']
 
 # product fields and mappings
 product_fields_mapping = {}
-fields = bitrix_request(_product_fields)
+fields = bitrix_request(_product_fields, params={})
 for key_, val_ in fields['result'].items():
     if str(key_).startswith('PROPERTY_') and 'title' in val_:
         product_fields_mapping[val_['title'].lower()] = key_
@@ -207,9 +206,9 @@ def are_differ(bookingsync_record, bitrix_record, exceptions: list):
         # compare in string format
         if str(bks_field).strip() != str(btx_field).strip():
             try:
-                print_std_and_log('for {} key, differ {} and {}'.format(_key, bks_field, btx_field))
+                logging.info('for {} key, differ {} and {}'.format(_key, bks_field, btx_field))
             except UnicodeEncodeError:
-                print_std_and_log('for {} key, something is differ')
+                logging.info('for {} key, something is differ')
             return True
 
     return False
@@ -230,9 +229,9 @@ def are_differ_products(bookingsync_record, bitrix_record):
                 return True
         elif str(val1) != str(val2):
             try:
-                print_std_and_log('for {} key, differ {} and {}'.format(_key, val1, val2))
+                logging.info('for {} key, differ {} and {}'.format(_key, val1, val2))
             except UnicodeEncodeError:
-                print_std_and_log('for {} key, something is differ')
+                logging.info('for {} key, something is differ')
 
             return True
 
@@ -357,7 +356,7 @@ def get_stage(start_at, end_at, status):
         elif 0 < reserv_days_ahead <= Cfg.get('btx_payed_status_interval'):
             stage_id = STAGE.PAYED
     except Exception as e:
-        print_std_and_log('Problem when trying to count stage_id: {}'.format(str(e)))
+        logging.info('Problem when trying to count stage_id: {}'.format(str(e)))
 
     return stage_id
 
@@ -503,7 +502,7 @@ def get_deals_from_db(db_data):
 
         deals.append(deal)
 
-    print_std_and_log('Ignored {} bookings as they have unavailable status'.format(ignored))
+    logging.info('Ignored {} bookings as they have unavailable status'.format(ignored))
     return deals
 
 
@@ -552,7 +551,7 @@ def add_contacts_to_deals(deal, res):
                                    }
                                    })
         else:
-            print_std_and_log('Booking {} has not client id'.find(str(res['result'])))
+            logging.info('Booking {} has not client id'.find(str(res['result'])))
 
         # bind product to deals
         # try:
@@ -585,47 +584,47 @@ def add_bitrix_fields(add_method, records, name, callback=None):
 
 
 def upload_products(to_add, to_update, to_delete):
-    print_std_and_log('Updating Bitrix products...')
+    logging.info('Updating Bitrix products...')
     if Cfg.get('btx_remove_old_rows'):
         delete_bitrix_fields(_product_remove, to_delete, 'products')
     update_bitrix_fields(_product_update, to_update, 'products')
     add_bitrix_fields(_product_add, to_add, 'products')
-    print_std_and_log('Updated: {}'.format(len(to_update)))
-    print_std_and_log('Added: {}'.format(len(to_add)))
-    print_std_and_log('Deleted: {}'.format(len(to_delete)))
-    print_std_and_log('Note: The items above may not been delete if remove_old_rows flag is false')
+    logging.info('Updated: {}'.format(len(to_update)))
+    logging.info('Added: {}'.format(len(to_add)))
+    logging.info('Deleted: {}'.format(len(to_delete)))
+    logging.info('Note: The items above may not been delete if remove_old_rows flag is false')
 
 
 def upload_deals(to_add, to_update, to_delete):
     get_contact_ids()
     get_product_ids()
-    print_std_and_log('Processing Bitrix deals...')
+    logging.info('Processing Bitrix deals...')
     if Cfg.get('btx_remove_old_rows'):
         delete_bitrix_fields(_deal_remove, to_delete, 'deals')
 
     update_bitrix_fields(_deal_update, to_update, 'deals')
     add_bitrix_fields(_deal_add, to_add, 'deals', add_contacts_to_deals)
-    print_std_and_log('Updated: {}'.format(len(to_update)))
-    print_std_and_log('Added: {}'.format(len(to_add)))
-    print_std_and_log('Deleted: {}'.format(len(to_delete)))
-    print_std_and_log('Note: The items above may not been delete if remove_old_rows flag is false')
+    logging.info('Updated: {}'.format(len(to_update)))
+    logging.info('Added: {}'.format(len(to_add)))
+    logging.info('Deleted: {}'.format(len(to_delete)))
+    logging.info('Note: The items above may not been delete if remove_old_rows flag is false')
 
 
 def upload_contacts(to_add, to_update, to_delete):
-    print_std_and_log('Processing Bitrix contacts...')
+    logging.info('Processing Bitrix contacts...')
     if Cfg.get('btx_remove_old_rows'):
         delete_bitrix_fields(_contact_remove, to_delete, 'contacts')
 
     update_bitrix_fields(_contact_update, to_update, 'contacts')
     add_bitrix_fields(_contact_add, to_add, 'contacts')
-    print_std_and_log('Updated: {}'.format(len(to_update)))
-    print_std_and_log('Added: {}'.format(len(to_add)))
-    print_std_and_log('Deleted: {}'.format(len(to_delete)))
-    print_std_and_log('Note: The items above may not been delete if remove_old_rows flag is false')
+    logging.info('Updated: {}'.format(len(to_update)))
+    logging.info('Added: {}'.format(len(to_add)))
+    logging.info('Deleted: {}'.format(len(to_delete)))
+    logging.info('Note: The items above may not been delete if remove_old_rows flag is false')
 
 
 def run_bitrix():
-    print_std_and_log('Uploading bitrix data...')
+    logging.info('Uploading bitrix data...')
     db = MySQL(host=Cfg.get('db_host'),
                port=int(Cfg.get('db_port')),
                user=Cfg.get('db_user'),
