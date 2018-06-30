@@ -55,15 +55,19 @@ class Cfg:
         Cfg.config['bks_booking_comments_base_url'] = config_parser.get('bookingsync', 'comments_base_url')
         Cfg.config['bks_clean_before_insert'] = config_parser.getboolean('bookingsync', 'clean_before_insert')
 
-        Cfg.config['tax_mapping'] = {}
-        for i in config_parser.get('tax_mapping', 'city_tax').split('/'):
-            Cfg.config['tax_mapping'][i.lower()] = 'city tax'
+        Cfg.config['bks_payment_rule'] = {}
+        for payment in config_parser.items('price_splitting'):
+            Cfg.config['bks_payment_rule'][payment[0]] = payment[1]
 
-        for i in config_parser.get('tax_mapping', 'cleaning_fee').split('/'):
-            Cfg.config['tax_mapping'][i.lower()] = 'cleaning fee'
+        Cfg.config['fee_mapping'] = {}
+        for i in config_parser.get('fee_mapping', 'city_tax').split('/'):
+            Cfg.config['fee_mapping'][i.lower()] = 'city_tax'
 
-        for i in config_parser.get('tax_mapping', 'vat').split('/'):
-            Cfg.config['tax_mapping'][i.lower()] = 'vat'
+        for i in config_parser.get('fee_mapping', 'cleaning_fee').split('/'):
+            Cfg.config['fee_mapping'][i.lower()] = 'cleaning_fee'
+
+        for i in config_parser.get('fee_mapping', 'vat').split('/'):
+            Cfg.config['fee_mapping'][i.lower()] = 'vat'
 
         config_parser = configparser.RawConfigParser()
         config_parser.optionxform = str
@@ -166,6 +170,15 @@ def generate_initial_queries(table_list, col_names):
     return data_for_db
 
 
+def find_all_dicts_in_list(lst, key, value):
+    ret = []
+    for dic in lst:
+        if str(dic[key]) == str(value):
+            ret.append(dic)
+
+    return ret
+
+
 def find_dict_in_list(lst, key, value):
     for dic in lst:
         if str(dic[key]) == str(value):
@@ -197,7 +210,8 @@ def prepare_data_for_db(db, response_dict):
                         my_row[col_name] = ''
 
                     if my_row[col_name] != col_value:
-                        logging.info('from {} table db {}={} source {}={}'.format(key, col_name, col_value, col_name, my_row[col_name]))
+                        logging.info('from {} table {}={} source {}={}'.format(key, col_name, col_value, col_name,
+                                                                                  my_row[col_name]))
                         to_update.append(my_row)
                         break
 
@@ -248,6 +262,32 @@ def process_column_value(col):
         assert 0
 
 
+def is_number(string: str):
+    try:
+        float(string)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def to_int(num):
+    if num:
+        return int(num)
+    return num
+
+
+def to_float(num, precision=2):
+    try:
+        ret = round(float(num), precision)
+        if len(str(ret).split('.')[1]) > 2:
+            print(num)
+            print(ret)
+    except:
+        ret = num
+
+    return ret
+
+
 def update_modified_rows(db, to_update, column_names):
     db.connect()
     db.execute('SET SQL_SAFE_UPDATES = 0')
@@ -292,7 +332,7 @@ def write_data_to_db(db: MySQL, dt: dict, table_list: list, package_size=500):
                 try:
                     values += process_column_value(record[col_name])
                 except:
-                    logging.info('q')
+                    logging.info(col_name)
 
             write_query = '({})'.format(values.strip(','))
             data_for_db += (',{}'.format(write_query) if count != 0 else write_query)

@@ -1,16 +1,19 @@
 import json
-import logging
 import os
 import sys
 import time
 from datetime import datetime
-from datetime import timedelta
 
 import requests
 
+from bookingsync_utils import *
 from mysql_wrapper import MySQL
 from utilities import Cfg
+from utilities import find_all_dicts_in_list
 from utilities import find_dict_in_list
+from utilities import is_number
+from utilities import to_float
+from utilities import to_int
 from utilities import write_data_to_db
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -42,7 +45,8 @@ def update_token():
 
 
 def request_data(url, params=None, rec=True):
-    headers = {'Authorization': str('Bearer ' + _token['access_token']), 'content-type': 'application/json', 'charset': 'UTF-8'}
+    headers = {'Authorization': str('Bearer ' + _token['access_token']), 'content-type': 'application/json',
+               'charset': 'UTF-8'}
 
     req = requests.get(url, headers=headers, params=params)
     if req.status_code == 401:
@@ -99,18 +103,6 @@ def to_datetime(st):
     return ''
 
 
-def to_int(num):
-    if num:
-        return int(num)
-    return num
-
-
-def to_float(num, prec=2):
-    if num:
-        return round(float(num), prec)
-    return num
-
-
 def get_bookings(bookings):
     my_bookings = []
 
@@ -127,6 +119,10 @@ def get_bookings(bookings):
     logging.info('Obtained Accounts data in {} sec'.format(time.time() - t_ren))
 
     for b in bookings:
+        if b['status'] == 'Canceled':
+            if (to_datetime(b['start_at']).date() - to_datetime(b['canceled_at']).date()).days > Cfg.get('btx_payed_status_interval'):
+                continue
+
         my_booking = {'id': int(b['id']),
                       'client_id': to_int(b['links']['client']),
                       'rental_id': to_int(b['links']['rental']),
@@ -152,7 +148,7 @@ def get_bookings(bookings):
                       'currency': b['currency'],
                       'notes': b['notes'],
                       'damage_deposit': to_float(b['damage_deposit']),
-                      'charge_damage_deposit_on_arrival': b['charge_damage_deposit_on_arrival'],
+                      'charge_damage_deposit_on_arrival': to_float(b['charge_damage_deposit_on_arrival']),
                       'adults': to_int(b['adults']),
                       'children': to_int(b['children']),
                       'bookings_payments_count': to_int(b['bookings_payments_count']),
@@ -169,7 +165,7 @@ def get_bookings(bookings):
                       'payment_left_to_collect': to_float(b['payment_left_to_collect']),
                       'owned_by_app': b['owned_by_app'],
                       'account_id': to_int(b['links']['account']),
-                      'probability_win': None, 'source': b['links']['source']}
+                      'probability_win': None, 'source': b['links']['source'] if b['links']['source'] else 'Praguestars.com'}
 
         if my_booking['source']:
             source = find_dict_in_list(sources, 'id', my_booking['source'])
@@ -193,9 +189,8 @@ def get_bookings(bookings):
     # get account name
     for b in my_bookings:
         for a in accounts['accounts']:
-            if len(a) > 0:
-                if a['id'] == b['account_id']:
-                    b['account'] = a['business_name']
+            if len(a) > 0 and a['id'] == b['account_id']:
+                b['account'] = a['business_name']
 
     return my_bookings
 
@@ -204,6 +199,7 @@ def get_rentals(rentals):
     my_rentals = []
     for r in rentals:
         my_rentals.append({'id': r['id'],
+                           'rental_type': r['rental_type'],
                            'created_at': to_datetime(r['created_at']),
                            'updated_at': to_datetime(r['updated_at']),
                            'published_at': to_datetime(r['published_at']),
@@ -211,9 +207,6 @@ def get_rentals(rentals):
                            'address1': r['address1'],
                            'address2': r['address2'],
                            'currency': r['currency'],
-                           'min_price': to_float(r['min_price']),
-                           'max_price': to_float(r['max_price']),
-                           'downpayment': to_int(r['downpayment']),
                            'bedrooms_count': to_int(r['bedrooms_count']),
                            'bathrooms_count': to_int(r['bathrooms_count']),
                            'sleeps': to_int(r['sleeps']),
@@ -225,8 +218,12 @@ def get_rentals(rentals):
                            'notes': r['notes'],
                            'base_rate': to_float(r['base_rate']),
                            'base_rate_kind': r['base_rate_kind'],
+                           'downpayment': to_float(r['downpayment']),
+                           'initial_price': to_float(r['initial_price']),
+                           'final_price': to_float(r['final_price']),
                            'damage_deposit': to_float(r['damage_deposit']),
-                           'rental_type': r['rental_type'],
+                           'min_price': to_float(r['min_price']),
+                           'max_price': to_float(r['max_price']),
                            'absolute_min_price': to_float(r['absolute_min_price'])})
 
     return my_rentals
@@ -282,19 +279,7 @@ def get_bookings_fee(bookings_fee):
         my_bfee = {'id': fee['id'], 'updated_at': to_datetime(fee['updated_at']),
                    'created_at': to_datetime(fee['created_at']), 'booking_id': to_int(fee['links']['booking']),
                    'included_in_price': fee['included_in_price'], 'price': to_float(fee['price']),
-                   'required': fee['required'],
-                   'times_booked': int(fee['times_booked'])}
-
-        bfee_names = Cfg.get('tax_mapping')
-
-        my_bfee['name'] = ''
-        for loc in fee['name'].keys():
-            if fee['name'][loc]:
-                try:
-                    my_bfee['name'] = bfee_names[fee['name'][loc].lower()]
-                    break
-                except (KeyError, ValueError):
-                    continue
+                   'required': fee['required'], 'times_booked': int(fee['times_booked']), 'name': get_fee_name(fee)}
 
         my_bfees.append(my_bfee)
     return my_bfees
@@ -305,63 +290,109 @@ def daterange(start_date, end_date):
         yield start_date + timedelta(n)
 
 
-def get_bookings_fee_splitted(bookings_fee, bookings):
-    my_splitted_fees = []
-    a_day = timedelta(days=1)
+def add_rental_data(booking_split, rental, proportion=1):
+    payments = ['downpayment', 'min_price', 'max_price']
+    for payment in payments:
+        if is_payment_splittable(payment) and is_number(payment):
+            booking_split[payment] = rental[payment] * proportion
+        else:
+            booking_split[payment] = rental[payment]
 
-    for fee in bookings_fee:
-        id_ = int(fee['id']) * 100
 
-        bkg = find_dict_in_list(bookings, 'id', fee['booking_id'])
+def add_booking_data(booking_split, booking, proportion=1):
+    exceptions = ['start_at', 'end_at', 'id']
+    prices = [
+        'initial_price', 'initial_rental_price', 'charge_damage_deposit_on_arrival', 'channel_price', 'vat',
+        'city_tax', 'cleaning_fee', 'discount', 'final_rental_price', 'rental_min_price', 'rental_max_price',
+        'final_price', 'payment_left_to_collect', 'damage_deposit', 'paid_amount']
+
+    for key, val in booking.items():
+        if key not in exceptions:
+            if key in prices and is_payment_splittable(key) and is_number(val):
+                booking_split[key] = to_float(val * proportion)
+            else:
+                booking_split[key] = val
+
+
+def get_bookings_splitted(bookings_fee, bookings, rentals):
+    bookings_splitted = []
+
+    for bkg in bookings:
+
+        # if booking id is 111 then booking_split_0 id will be 11100 and booking_split_1 id will be 11101
+        id_ = int(bkg['id']) * 100
+
+        # find rental related to this booking
+        rental = find_dict_in_list(rentals, 'id', bkg['rental_id'])
+
+        # find all fees related to this booking
+        fees = find_all_dicts_in_list(bookings_fee, 'booking_id', bkg['id'])
 
         start_at = bkg['start_at'].date()
         end_at = bkg['end_at'].date()
+        total_days = (end_at - start_at).days
 
-        if start_at.month == end_at.month and start_at.year == end_at.year:
-            my_splitted_fees.append(
-                {'name': fee['name'], 'id': id_, 'booking_id': bkg['id'], 'bookings_fee_id': fee['id'],
-                 'start_at': start_at, 'end_at': end_at, 'price': fee['price'],
-                 'number_of_nights': end_at.day - start_at.day}
-            )
+        if is_same_month(start_at, end_at):
+            booking_split = {'id': id_,
+                             'booking_id': bkg['id'],
+                             'booking_fee_ids': ','.join([str(fee['id']) for fee in fees]),
+                             'start_at': start_at,
+                             'end_at': end_at,
+                             'number_of_nights': total_days}
+
+            get_fees_for_splitted_booking(booking_split, fees)
+            add_booking_data(booking_split, bkg)
+            add_rental_data(booking_split, rental)
+
+            bookings_splitted.append(booking_split)
         else:
-            daily_fee = to_float(fee['price'] / (end_at - start_at).days, 4)
-            current = start_at
+            current_date = start_at
             current_start_date = start_at
 
-            while current <= end_at:
-                if current.month != current_start_date.month:
-                    number_of_nights = (current - current_start_date).days
-                    my_splitted_fees.append(
-                        {'id': id_,
-                         'name': fee['name'],
-                         'booking_id': bkg['id'],
-                         'bookings_fee_id': fee['id'],
-                         'start_at': current_start_date,
-                         'end_at': current - a_day,
-                         'number_of_nights': number_of_nights,
-                         'price': to_float(daily_fee * number_of_nights, 4)}
-                    )
+            while current_date <= end_at:
+                if current_date.month != current_start_date.month:
+                    number_of_nights = (current_date - current_start_date).days
+                    booking_split = {'id': id_,
+                                     'booking_id': bkg['id'],
+                                     'booking_fee_ids': ','.join([str(fee['id']) for fee in fees]),
+                                     'start_at': current_start_date,
+                                     'end_at': current_date - a_day,
+                                     'number_of_nights': number_of_nights}
 
-                    current_start_date = current
+                    proportion = number_of_nights / total_days
+
+                    get_fees_for_splitted_booking(booking_split, fees, proportion)
+
+                    add_booking_data(booking_split, bkg, proportion)
+                    add_rental_data(booking_split, rental, proportion)
+
+                    bookings_splitted.append(booking_split)
+
+                    current_start_date = current_date
                     id_ += 1
 
-                elif current == end_at:
-                    number_of_nights = (current - current_start_date).days
-                    my_splitted_fees.append(
-                        {'id': id_,
-                         'name': fee['name'],
-                         'booking_id': bkg['id'],
-                         'bookings_fee_id': fee['id'],
-                         'start_at': current_start_date,
-                         'end_at': current,
-                         'number_of_nights': number_of_nights,
-                         'price': to_float(daily_fee * number_of_nights, 4)}
-                    )
+                # last day
+                elif current_date == end_at:
+                    number_of_nights = (current_date - current_start_date).days
+                    booking_split = {'id': id_,
+                                     'booking_id': bkg['id'],
+                                     'booking_fee_ids': ','.join([str(fee['id']) for fee in fees]),
+                                     'start_at': current_start_date,
+                                     'end_at': current_date,
+                                     'number_of_nights': number_of_nights}
+
+                    proportion = number_of_nights / total_days
+                    get_fees_for_splitted_booking(booking_split, fees, number_of_nights / total_days)
+
+                    add_booking_data(booking_split, bkg, proportion)
+                    add_rental_data(booking_split, rental, proportion)
+
+                    bookings_splitted.append(booking_split)
                     break
 
-                current += a_day
+                current_date += a_day
 
-    return my_splitted_fees
+    return bookings_splitted
 
 
 def run_bookingsync():
@@ -369,11 +400,11 @@ def run_bookingsync():
     logging.info('Obtaining data from bookingsync...')
 
     t_bfe = time.time()
-    bookings_fee = advanced_request('bookings_fee')
+    bookings_fee = advanced_request('bookings_fee', params={'from': '20111101', 'status': 'booked,unavailable,tentative'})
     logging.info('Obtained Bookings fee data in {} sec'.format(time.time() - t_bfe))
 
     t_bkg = time.time()
-    bookings = advanced_request('booking', params={'from': '20111101'})
+    bookings = advanced_request('booking', params={'from': '20111101', 'status': 'booked,unavailable,tentative', 'include_canceled': True})
     logging.info('Obtained Bookings data in {} sec'.format(time.time() - t_bkg))
 
     t_cl = time.time()
@@ -390,7 +421,7 @@ def run_bookingsync():
             'bookings': get_bookings(bookings),
             'bookings_fee': get_bookings_fee(bookings_fee)}
 
-    data['bookings_fee_splitted'] = get_bookings_fee_splitted(data['bookings_fee'], data['bookings'])
+    data['bookings_split'] = get_bookings_splitted(data['bookings_fee'], data['bookings'], data['rentals'])
 
     for b in data['bookings']:
         if b['client_id'] and not find_dict_in_list(data['clients'], 'id', b['client_id']):

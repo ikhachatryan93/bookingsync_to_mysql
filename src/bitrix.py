@@ -344,16 +344,16 @@ def get_stage(start_at, end_at, status):
     # If the reservation is 32days ahead or less we change it to :"payed".
     # If start_at is today, then we change it to "Arrival".
     # If start_at<today<end_at then value is "staying", and if end_at=today then "departing"
-    stage_id = STAGE.BOOKED if status == 'Booked' else None
-    reserv_days_ahead = (start_at - datetime.now()).days
+    stage_id = STAGE.BOOKED if status == 'Booked' else STAGE.CANCELED if status == 'Canceled' else None
+    reserve_days_ahead = (start_at - datetime.now()).days
     try:
-        if reserv_days_ahead == 0:
+        if reserve_days_ahead == 0:
             stage_id = STAGE.ARRIVED
         elif start_at <= datetime.now() <= end_at:
             stage_id = STAGE.STAY
         elif datetime.now() > end_at:
             stage_id = STAGE.DEPARTED
-        elif 0 < reserv_days_ahead <= Cfg.get('btx_payed_status_interval'):
+        elif 0 < reserve_days_ahead <= Cfg.get('btx_payed_status_interval'):
             stage_id = STAGE.PAYED
     except Exception as e:
         logging.info('Problem when trying to count stage_id: {}'.format(str(e)))
@@ -435,11 +435,16 @@ def get_deals_from_db(db_data):
     get_product_ids()
 
     deals = []
-    ignored = 0
+    unavailable = 0
+    canceled = 0
     for booking in db_data['bookings']:
         if int(booking['unavailable']):
-            ignored += 1
+            unavailable += 1
             continue
+        if booking['status'] == 'Canceled' and booking['canceled_at']:
+            if (booking['start_at'].date() - booking['canceled_at'].date()).days() > Cfg('btx_payed_status_interval'):
+                canceled += 1
+                continue
 
         deal = dict(OPPORTUNITY=booking['final_price'])
 
@@ -502,7 +507,8 @@ def get_deals_from_db(db_data):
 
         deals.append(deal)
 
-    logging.info('Ignored {} bookings as they have unavailable status'.format(ignored))
+    logging.info('Ignored {} bookings as they have unavailable status'.format(unavailable))
+    logging.info('Ignored {} bookings as they have canceled status with acceptable interval'.format(unavailable))
     return deals
 
 

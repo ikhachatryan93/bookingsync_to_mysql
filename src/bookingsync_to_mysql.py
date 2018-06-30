@@ -2,7 +2,7 @@ import logging_setup
 import logging
 import traceback
 from bookingsync import run_bookingsync
-logging_setup.configure_logging('file')
+logging_setup.configure_logging('stream')
 
 
 def main():

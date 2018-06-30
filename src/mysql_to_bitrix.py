@@ -3,7 +3,7 @@ import logging
 import traceback
 import bitrix
 
-logging_setup.configure_logging('file')
+logging_setup.configure_logging('stream')
 
 
 def main():
