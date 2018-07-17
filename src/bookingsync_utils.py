@@ -33,7 +33,7 @@ def get_fees_for_splitted_booking(booking_split, fees, bkg, portion=1):
     if bkg['comments']:
         for fee_name in fee_names.keys():
             fee_info = re.search('{}(.*)'.format(fee_name.replace('_', ' ').lower()), bkg['comments'].lower())
-            if fee_info:
+            if fee_info and len(fee_info.groups()) > 1:
                 fee_initial = re.search('[0-9]+\.[0-9]*', fee_info[1])
                 if fee_initial:
                     booking_split[fee_names[fee_name]] = to_float(fee_initial[0])

@@ -442,7 +442,7 @@ def get_deals_from_db(db_data):
             unavailable += 1
             continue
         if booking['status'] == 'Canceled' and booking['canceled_at']:
-            if (booking['start_at'].date() - booking['canceled_at'].date()).days() > Cfg('btx_payed_status_interval'):
+            if (booking['start_at'].date() - booking['canceled_at'].date()).days > Cfg.get('btx_payed_status_interval'):
                 canceled += 1
                 continue
 
@@ -499,6 +499,7 @@ def get_deals_from_db(db_data):
         deal['PROBABILITY'] = booking['probability_win']
         deal[dm['quantity']] = '1'
         deal[dm['bookingsync link']] = 'https://www.bookingsync.com/en/bookings/{}'.format(booking['id'])
+        print('asd;')
         deal[dm['product']] = rental_product_ids[booking['rental_id']]
 
         for k in deal.keys():
@@ -508,7 +509,7 @@ def get_deals_from_db(db_data):
         deals.append(deal)
 
     logging.info('Ignored {} bookings as they have unavailable status'.format(unavailable))
-    logging.info('Ignored {} bookings as they have canceled status with acceptable interval'.format(unavailable))
+    logging.info('Ignored {} bookings as they have canceled status with acceptable interval'.format(canceled))
     return deals
 
 
