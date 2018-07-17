@@ -293,6 +293,10 @@ def daterange(start_date, end_date):
 def add_rental_data(booking_split, rental, proportion=1):
     payments = ['downpayment', 'min_price', 'max_price']
     for payment in payments:
+        if not rental:
+            booking_split[payment] = ''
+            continue
+
         if is_payment_splittable(payment) and is_number(payment):
             booking_split[payment] = rental[payment] * proportion
         else:
@@ -340,8 +344,9 @@ def get_bookings_splitted(bookings_fee, bookings, rentals):
                              'end_at': end_at,
                              'number_of_nights': total_days}
 
-            get_fees_for_splitted_booking(booking_split, fees)
+            get_fees_for_splitted_booking(booking_split, fees, bkg)
             add_booking_data(booking_split, bkg)
+
             add_rental_data(booking_split, rental)
 
             bookings_splitted.append(booking_split)
@@ -361,9 +366,10 @@ def get_bookings_splitted(bookings_fee, bookings, rentals):
 
                     proportion = number_of_nights / total_days
 
-                    get_fees_for_splitted_booking(booking_split, fees, proportion)
+                    get_fees_for_splitted_booking(booking_split, fees, bkg, proportion)
 
                     add_booking_data(booking_split, bkg, proportion)
+
                     add_rental_data(booking_split, rental, proportion)
 
                     bookings_splitted.append(booking_split)
@@ -382,7 +388,7 @@ def get_bookings_splitted(bookings_fee, bookings, rentals):
                                      'number_of_nights': number_of_nights}
 
                     proportion = number_of_nights / total_days
-                    get_fees_for_splitted_booking(booking_split, fees, number_of_nights / total_days)
+                    get_fees_for_splitted_booking(booking_split, fees, bkg, proportion)
 
                     add_booking_data(booking_split, bkg, proportion)
                     add_rental_data(booking_split, rental, proportion)

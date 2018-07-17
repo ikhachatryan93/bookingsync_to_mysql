@@ -279,9 +279,6 @@ def to_int(num):
 def to_float(num, precision=2):
     try:
         ret = round(float(num), precision)
-        if len(str(ret).split('.')[1]) > 2:
-            print(num)
-            print(ret)
     except:
         ret = num
 
