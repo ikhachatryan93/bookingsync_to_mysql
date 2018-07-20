@@ -441,10 +441,10 @@ def get_deals_from_db(db_data):
         if int(booking['unavailable']):
             unavailable += 1
             continue
-        if booking['status'] == 'Canceled' and booking['canceled_at']:
-            if (booking['start_at'].date() - booking['canceled_at'].date()).days > Cfg.get('btx_payed_status_interval'):
-                canceled += 1
-                continue
+        #if booking['status'] == 'Canceled' and booking['canceled_at']:
+            #if (booking['start_at'].date() - booking['canceled_at'].date()).days > Cfg.get('btx_payed_status_interval'):
+            #   canceled += 1
+            #   continue
 
         deal = dict(OPPORTUNITY=booking['final_price'])
 
@@ -499,8 +499,7 @@ def get_deals_from_db(db_data):
         deal['PROBABILITY'] = booking['probability_win']
         deal[dm['quantity']] = '1'
         deal[dm['bookingsync link']] = 'https://www.bookingsync.com/en/bookings/{}'.format(booking['id'])
-        print('asd;')
-        deal[dm['product']] = rental_product_ids[booking['rental_id']]
+        deal[dm['product']] = rental_product_ids[booking['rental_id']] if booking["rental_id"] in rental_product_ids else ""
 
         for k in deal.keys():
             if deal[k] is None:
