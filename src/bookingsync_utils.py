@@ -31,12 +31,17 @@ def get_fees_for_splitted_booking(booking_split, fees, bkg, portion=1):
     # try to get fee info from booking comments, as some booking_fee data is not available via api
     # remove this if you can get all bookings_fee info in future
     if bkg['comments']:
+        cmt = bkg['comments'].encode('ascii', 'ignore').decode('utf-8')
         for fee_name in fee_names.keys():
-            fee_info = re.search('{}(.*)'.format(fee_name.replace('_', ' ').lower()), bkg['comments'].lower())
+            fee_info = re.search('{}(.*)'.format(fee_name.replace('_', ' ').lower()), cmt.lower())
             if fee_info and len(fee_info.groups()) > 1:
                 fee_initial = re.search('[0-9]+\.[0-9]*', fee_info[1])
                 if fee_initial:
                     booking_split[fee_names[fee_name]] = to_float(fee_initial[0])
+            else:
+                print(cmt)
+ 
+
 
     # get fee info
     if fees:
