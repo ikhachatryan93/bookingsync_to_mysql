@@ -57,3 +57,4 @@ configs/bookinsync.ini
 Note: Some python modules may be missed in standard library, so you need manually install them.
 
 IN CASE OF QUESTIONS PLEASE CONTACT: ikhachatryan93@gmail.com
+
