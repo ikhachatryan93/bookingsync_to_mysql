@@ -4,6 +4,7 @@ import os
 import re
 import time
 from datetime import datetime
+from datetime import date
 from multidimensional_urlencode import urlencode
 
 import requests
@@ -49,7 +50,7 @@ with open(_json_file, 'r') as f:
 def json_serial(obj):
     """JSON serializer for objects not serializable by default json code"""
 
-    if isinstance(obj, datetime):
+    if isinstance(obj, datetime) or isinstance(obj, date):
         return str(obj)
     raise TypeError("Type %s not serializable" % type(obj))
 
@@ -454,8 +455,11 @@ def get_deals_from_db(db_data):
 
         start_at = booking['start_at']
         end_at = booking['end_at']
-        deal[dm['assumed close date']] = end_at
-        deal[dm['start date']] = start_at
+        # deal[dm['start date']] = start_at
+        deal['BEGINDATE'] = start_at.date()
+        deal['CLOSEDATE'] = end_at.date()
+        # this custom field is same as CLOSEDATE the only difference is CLOSEDATE can be assigned with past date
+        deal[dm['assumed close date']] = end_at.date()
         deal['STAGE_ID'] = get_stage(start_at, end_at, booking['status'])
 
         # deal['RESPONSIBLE'] = 'unassigned'
