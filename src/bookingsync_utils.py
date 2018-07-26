@@ -39,7 +39,7 @@ def get_fees_for_splitted_booking(booking_split, fees, bkg, portion=1):
                 fee_initial = re.search('[0-9]+\.[0-9]*', fee_info.group(1))
                 if fee_initial:
                     # b = True
-                    booking_split[fee_names[fee_name]] = to_float(fee_initial.group(0) * portion)
+                    booking_split[fee_names[fee_name]] = to_float(to_float(fee_initial.group(0)) * portion)
 
         # for debugging
         # if not b:
